@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "CDown 助手 - 极速下载",
+  "version": "1.0.0",
+  "description": "CDown 下载器浏览器助手：右键下载、页面媒体嗅探、一键发送到 CDown 满速下载",
+  "permissions": ["contextMenus", "storage", "notifications", "webRequest"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_icon": { "128": "icon.png" } },
+  "icons": { "16": "icon.png", "48": "icon.png", "128": "icon.png" }
+}

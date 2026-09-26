@@ -1,0 +1,46 @@
+{
+  "name": "cdown",
+  "version": "0.2.2",
+  "description": "CDown - 极速多线程下载器 (Electron)",
+  "main": "src/main/main.js",
+  "author": "diciky <diciky.zl@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron . --no-sandbox --disable-gpu",
+    "cli": "node scripts/engine-cli.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.cdown.app",
+    "productName": "CDown",
+    "files": [
+      "src/**/*"
+    ],
+    "extraResources": [
+      "bin/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "CDown"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "jimp": "^0.22.12",
+    "png-to-ico": "^3.0.2"
+  }
+}

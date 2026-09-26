@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { width: 380px; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1c2330; }
+    header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: linear-gradient(135deg, #3b82f6, #4f46e5); color: #fff; }
+    header svg { display: block; }
+    header .t { font-size: 15px; font-weight: 700; }
+    header .status { margin-left: auto; font-size: 11px; padding: 3px 9px; border-radius: 20px; background: rgba(255,255,255,.2); }
+    header .status.on { background: #22c55e; }
+    .addbar { display: flex; gap: 6px; padding: 10px 12px; background: #fff; border-bottom: 1px solid #e4e7ec; }
+    .addbar input { flex: 1; padding: 8px 10px; border: 1px solid #e4e7ec; border-radius: 8px; font-size: 12px; outline: none; }
+    .addbar input:focus { border-color: #3b82f6; }
+    .addbar button { border: none; background: #3b82f6; color: #fff; border-radius: 8px; padding: 0 14px; font-size: 12px; cursor: pointer; font-weight: 600; }
+    .addbar button:hover { background: #2563eb; }
+    .section { padding: 8px 12px 2px; font-size: 11px; color: #667085; display: flex; align-items: center; gap: 6px; }
+    .section button { margin-left: auto; border: none; background: none; color: #3b82f6; cursor: pointer; font-size: 11px; }
+    ul { list-style: none; margin: 4px 8px 8px; max-height: 260px; overflow-y: auto; }
+    li { background: #fff; border: 1px solid #e4e7ec; border-radius: 8px; padding: 7px 9px; margin-bottom: 5px; display: flex; gap: 7px; align-items: center; }
+    li .u { flex: 1; font-size: 11px; word-break: break-all; color: #344054; max-height: 32px; overflow: hidden; }
+    li .tag { font-size: 10px; background: #e8edfb; color: #3b82f6; padding: 1px 6px; border-radius: 10px; flex-shrink: 0; font-weight: 600; }
+    li button { border: none; background: #3b82f6; color: #fff; border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; flex-shrink: 0; }
+    li button:hover { background: #2563eb; }
+    .empty { text-align: center; color: #98a2b3; font-size: 12px; padding: 18px 0 22px; }
+    footer { display: flex; gap: 8px; padding: 8px 12px 12px; }
+    footer input { flex: 1; width: 70px; padding: 6px 9px; border: 1px solid #e4e7ec; border-radius: 8px; font-size: 12px; }
+    footer span { font-size: 11px; color: #667085; align-self: center; }
+    .toast { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #1c2330; color: #fff; font-size: 12px; padding: 7px 14px; border-radius: 8px; display: none; z-index: 9; }
+    .toast.err { background: #dc2626; }
+  </style>
+</head>
+<body>
+  <header>
+    <svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true">
+      <rect x="2" y="2" width="44" height="44" rx="11" fill="rgba(255,255,255,.18)"/>
+      <path d="M24 13 v16" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+      <path d="M15.5 22.5 L24 31 L32.5 22.5" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <path d="M15 36.5 h18" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
+    </svg>
+    <span class="t">CDown 助手</span>
+    <span class="status" id="status">检测中…</span>
+  </header>
+
+  <div class="addbar">
+    <input id="url" type="text" placeholder="粘贴下载链接，回车或点击发送到 CDown" />
+    <button id="send">发送</button>
+  </div>
+
+  <div class="section">本页检测到的媒体 <button id="refresh">↻ 刷新</button></div>
+  <ul id="media-list"></ul>
+  <div class="empty" id="empty">播放页面里的视频后，这里会自动捕获媒体地址<br>也可在视频/链接上点右键选择「用 CDown 下载」</div>
+
+  <footer>
+    <span>CDown 端口</span>
+    <input id="port" type="number" value="8780" />
+  </footer>
+  <div class="toast" id="toast"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

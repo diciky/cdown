@@ -1,0 +1,17 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dist-*/
+dist*/
+
+# 运行数据
+data/
+
+# 大体积二进制（请按 README 说明自行下载）
+bin/
+scripts/testfile.bin
+
+# 系统与日志
+*.log
+.DS_Store
+Thumbs.db
