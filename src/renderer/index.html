@@ -37,6 +37,7 @@
       <option value="4"></option><option value="8"></option><option value="16"></option>
       <option value="32"></option><option value="64"></option>
     </datalist>
+    <button id="btn-sniff" class="ghost" title="嗅探网址，发现页面里的视频/音频/文件">🔍 嗅探</button>
     <button id="btn-add" class="primary">添加任务</button>
   </section>
 
@@ -67,6 +68,29 @@
     </div>
   </div>
 
+  <!-- 网址嗅探弹窗 -->
+  <div id="sniff-modal" class="modal hidden">
+    <div class="modal-body sniff-body">
+      <h3>🔍 网址嗅探 - 发现可下载文件</h3>
+      <div class="row">
+        <input id="sniff-url" type="text" placeholder="输入任意网页地址：视频页 / 资源页 / m3u8 …" />
+        <button id="btn-sniff-go" class="primary">嗅探</button>
+      </div>
+      <div id="sniff-status" class="dim" style="font-size:12px;color:var(--text2)"></div>
+      <div id="sniff-results" class="sniff-results"></div>
+      <div class="row sniff-ops">
+        <label class="check-row" style="margin-top:0"><input id="sniff-checkall" type="checkbox" checked /> 全选</label>
+        <span style="flex:1"></span>
+        <span style="font-size:12px;color:var(--text2)">线程</span>
+        <input id="sniff-threads" type="number" min="1" max="64" value="32" style="width:78px" />
+        <button id="btn-sniff-download" class="primary" disabled>下载所选</button>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-sniff-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 设置弹窗 -->
   <div id="settings-modal" class="modal hidden">
     <div class="modal-body">
@@ -78,7 +102,7 @@
       <label>同时下载任务数</label>
       <input id="cfg-concurrent" type="number" min="1" max="10" />
       <label class="check-row"><input id="cfg-clipboard" type="checkbox" /> 自动识别剪贴板链接并询问添加</label>
-      <div class="about">CDown v0.2.2 · 开发者 <b>diciky</b> · <a href="mailto:diciky.zl@gmail.com" style="color:var(--primary)">diciky.zl@gmail.com</a> · MIT License</div>
+      <div class="about">CDown v0.2.3 · 开发者 <b>diciky</b> · <a href="mailto:diciky.zl@gmail.com" style="color:var(--primary)">diciky.zl@gmail.com</a> · MIT License</div>
       <div class="modal-actions">
         <button id="btn-settings-cancel" class="ghost">取消</button>
         <button id="btn-settings-save" class="primary">保存</button>

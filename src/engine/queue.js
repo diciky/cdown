@@ -32,7 +32,6 @@ const SOURCE_MAP = [
   [/pixiv\.net$/i, 'Pixiv'],
   [/twitch\.tv$/i, 'Twitch'],
   [/vimeo\.com$/i, 'Vimeo'],
-  [/twitch\.tv$/i, 'Twitch'],
 ];
 
 function getSource(url) {
@@ -77,7 +76,7 @@ class Queue extends EventEmitter {
     const arr = [...this.tasks.values()].map(t => ({
       id: t.id, url: t.url, type: t.type, status: t.status,
       filePath: t.filePath, filename: t.filename, threads: t.threads,
-      size: t.size, downloaded: t.downloaded, error: t.error, createdAt: t.createdAt
+      size: t.size, downloaded: t.downloaded, error: t.error, createdAt: t.createdAt, format: t.format || null
     }));
     await fsp.mkdir(path.dirname(TASKS_FILE), { recursive: true });
     await fsp.writeFile(TASKS_FILE, JSON.stringify(arr, null, 2)).catch(() => {});
@@ -107,7 +106,7 @@ class Queue extends EventEmitter {
 
     // yt-dlp 任务先探测标题
     if (type === 'ytdlp') {
-      try { const info = await ytdlp.probe(url); filename = filename || safeName(info.title) + '.mp4'; }
+      try { const info = await ytdlp.probe(url); filename = filename || safeName(info.title) + '.' + (opts.formatExt || 'mp4'); }
       catch (e) {
         this.emit('add-failed', { id, error: e.message });
         throw e;
@@ -116,7 +115,7 @@ class Queue extends EventEmitter {
     filename = filename || filenameFromUrl(url);
     const filePath = path.join(opts.dir || cfg.downloadDir, filename);
 
-    const task = { id, url, type, source, status: 'pending', filePath, filename, threads, size: -1, downloaded: 0, error: null, createdAt: Date.now(), worker: null };
+    const task = { id, url, type, source, status: 'pending', filePath, filename, threads, size: -1, downloaded: 0, error: null, createdAt: Date.now(), worker: null, format: opts.format || null };
     this.tasks.set(id, task);
     await this._persist();
     this.emit('progress');
@@ -143,7 +142,7 @@ class Queue extends EventEmitter {
       if (task.type === 'hls') {
         worker = new HlsDownloader({ id: task.id, url: task.url, filePath: task.filePath, threads: task.threads });
       } else if (task.type === 'ytdlp') {
-        worker = new ytdlp.YtDlpDownloader({ id: task.id, url: task.url, filePath: task.filePath, title: task.filename });
+        worker = new ytdlp.YtDlpDownloader({ id: task.id, url: task.url, filePath: task.filePath, title: task.filename, format: task.format });
       } else {
         const pre = await resolveTarget(task.url, {});
         // HuggingFace：resolveTarget 已命中最终 CDN URL，直接以线程数开跑

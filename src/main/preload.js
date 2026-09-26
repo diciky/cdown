@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('tdm', {
   pauseAll: () => ipcRenderer.invoke('tasks:pauseAll'),
   clearCompleted: () => ipcRenderer.invoke('tasks:clearCompleted'),
   restart: id => ipcRenderer.invoke('tasks:restart', id),
+  sniffUrl: url => ipcRenderer.invoke('sniff:url', url),
   exportLinks: () => ipcRenderer.invoke('tasks:exportLinks'),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: patch => ipcRenderer.invoke('config:set', patch),

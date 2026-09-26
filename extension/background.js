@@ -63,22 +63,41 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// ---------- 页面媒体嗅探（webRequest 被动捕获） ----------
-const MEDIA_RE = /\.(m3u8|mpd|mp4|m4s|ts|flv|webm|mkv|mp3|m4a|aac|flac|ogg|wav)(\?|$)/i;
+// ---------- 页面媒体嗅探（webRequest 被动捕获，全站通用） ----------
+// 三重检测：URL 后缀 / URL 关键词（m3u8·mpd·manifest 等）/ 响应 Content-Type
+const MEDIA_RE = /\.(m3u8|mpd|mp4|m4s|ts|flv|webm|mkv|mov|avi|mp3|m4a|aac|flac|ogg|wav|opus)(\?|#|$)/i;
+const MEDIA_KW_RE = /(m3u8|mpegurl|dash\+xml|\.mpd|format=mpd|\/manifest)/i;
+const CT_MEDIA_RE = /^(video|audio)\//i;
+const CT_EXTRA_RE = /(mpegurl|dash\+xml|mp2t)/i;
 // tabId -> Set<url>
 const tabMedia = new Map();
 
+function captureMedia(tabId, url) {
+  if (tabId < 0 || !url) return;
+  if (!tabMedia.has(tabId)) tabMedia.set(tabId, new Set());
+  const set = tabMedia.get(tabId);
+  if (set.size < 300) set.add(url);
+}
+
 chrome.webRequest.onBeforeRequest.addListener(details => {
-  if (details.tabId < 0) return;
   const u = details.url;
   const isMedia = MEDIA_RE.test(u) ||
     (details.type === 'media') ||
-    (details.type === 'xmlhttprequest' && /m3u8|mpd|manifest|format=mpd/i.test(u) && MEDIA_RE.test(u));
-  if (!isMedia) return;
-  if (!tabMedia.has(details.tabId)) tabMedia.set(details.tabId, new Set());
-  const set = tabMedia.get(details.tabId);
-  if (set.size < 100) set.add(u);
+    (details.type === 'xmlhttprequest' && MEDIA_KW_RE.test(u));
+  if (isMedia) captureMedia(details.tabId, u);
 }, { urls: ['<all_urls>'] });
+
+// Content-Type 检测：响应头声明为视频/音频/流媒体清单的一律捕获（不依赖文件后缀）
+chrome.webRequest.onHeadersReceived.addListener(details => {
+  const ct = (details.responseHeaders || []).find(h => h.name.toLowerCase() === 'content-type');
+  const v = ((ct && ct.value) || '').toLowerCase();
+  if (!v || /text\/html|application\/json|text\/plain/.test(v)) {
+    // 无明确媒体类型时，XHR + 关键词兜底
+    if (details.type === 'xmlhttprequest' && MEDIA_KW_RE.test(details.url)) captureMedia(details.tabId, details.url);
+    return;
+  }
+  if (CT_MEDIA_RE.test(v) || CT_EXTRA_RE.test(v)) captureMedia(details.tabId, details.url);
+}, { urls: ['<all_urls>'] }, ['responseHeaders']);
 
 chrome.tabs.onRemoved.addListener(tabId => tabMedia.delete(tabId));
 chrome.tabs.onUpdated.addListener((tabId, info) => { if (info.status === 'loading') tabMedia.delete(tabId); });

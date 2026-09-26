@@ -54,6 +54,14 @@ $('#send').addEventListener('click', () => {
 });
 $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') $('#send').click(); });
 $('#refresh').addEventListener('click', loadMedia);
+// 本页视频：直接把页面 URL 发给 CDown（视频站自动走 yt-dlp 全站解析）
+$('#send-page').addEventListener('click', () => {
+  if (!currentTab || !/^https?:/i.test(currentTab.url || '')) return toast('当前页面无法下载', true);
+  chrome.runtime.sendMessage({ type: 'send-url', url: currentTab.url, source: '页面视频' }, r => {
+    if (chrome.runtime.lastError) return toast(chrome.runtime.lastError.message, true);
+    if (r && r.ok) toast('已发送页面到 CDown 解析');
+  });
+});
 $('#port').addEventListener('change', () => {
   const port = Math.min(65535, Math.max(1024, Number($('#port').value) || 8780));
   chrome.storage.local.set({ port }, () => { toast('端口已保存: ' + port); checkStatus(); });

@@ -29,7 +29,7 @@ function findBinary() {
 function probe(url) {
   return new Promise((resolve, reject) => {
     const bin = findBinary() || 'yt-dlp';
-    const p = spawn(bin, ['-J', '--no-warnings', '--encoding', 'utf-8', url], { windowsHide: true, env: ytdlpEnv() });
+    const p = spawn(bin, ['-J', '--no-warnings', '--no-playlist', '--encoding', 'utf-8', url], { windowsHide: true, env: ytdlpEnv() });
     const chunks = [];
     const errChunks = [];
     p.stdout.on('data', d => chunks.push(d));
@@ -52,6 +52,51 @@ function probe(url) {
   });
 }
 
+// 嗅探用：返回格式清单（供用户挑选画质/音质）
+function probeFormats(url) {
+  return new Promise((resolve, reject) => {
+    const bin = findBinary() || 'yt-dlp';
+    const p = spawn(bin, ['-J', '--no-warnings', '--no-playlist', '--encoding', 'utf-8', url], { windowsHide: true, env: ytdlpEnv() });
+    const chunks = [];
+    const errChunks = [];
+    p.stdout.on('data', d => chunks.push(d));
+    p.stderr.on('data', d => errChunks.push(d));
+    p.on('error', e => reject(new Error(`yt-dlp 不可用 (${e.message})。请将 yt-dlp.exe 放入项目 bin/ 目录`)));
+    p.on('exit', code => {
+      const out = Buffer.concat(chunks).toString('utf8');
+      const err = Buffer.concat(errChunks).toString('utf8');
+      if (code !== 0) return reject(new Error(err.trim().slice(0, 300) || `yt-dlp 退出码 ${code}`));
+      let info;
+      try { info = JSON.parse(out); } catch { return reject(new Error('解析 yt-dlp 元数据失败')); }
+      const items = [];
+      for (const f of info.formats || []) {
+        // 过滤：故事板缩略图、无媒体的占位格式
+        if (/storyboard/i.test(f.format_note || '') || (f.vcodec === 'none' && f.acodec === 'none')) continue;
+        if (f.protocol === 'mhtml') continue;
+        const hasV = f.vcodec && f.vcodec !== 'none';
+        const hasA = f.acodec && f.acodec !== 'none';
+        const res = f.height ? `${f.height}p` : (f.resolution || '');
+        const parts = [res, f.ext, f.format_note].filter(Boolean);
+        const label = parts.join(' · ') + (hasV && hasA ? '' : hasV ? '（仅视频）' : hasA ? '（仅音频）' : '');
+        items.push({
+          formatId: f.format_id, ext: f.ext || 'mp4',
+          label, size: f.filesize || f.filesize_approx || null,
+          type: hasV && hasA ? '音视频' : hasV ? '仅视频' : '仅音频'
+        });
+      }
+      // 去重（同 format_id）+ 按大小降序，截取前 40
+      const seen = new Set();
+      items.sort((a, b) => (b.size || 0) - (a.size || 0));
+      const dedup = items.filter(i => !seen.has(i.formatId) && seen.add(i.formatId)).slice(0, 40);
+      resolve({
+        title: info.title || info.id || 'video',
+        extractor: info.extractor_key || info.extractor,
+        items: dedup
+      });
+    });
+  });
+}
+
 class YtDlpDownloader extends EventEmitter {
   constructor(opts) {
     super();
@@ -65,6 +110,7 @@ class YtDlpDownloader extends EventEmitter {
     this.size = -1;
     this.speed = 0;
     this.title = opts.title || null;
+    this.format = opts.format || null; // 嗅探选择的格式（null = 自动最佳画质）
     this._proc = null;
     this._paused = false;
     this.logs = [];
@@ -100,7 +146,7 @@ class YtDlpDownloader extends EventEmitter {
       '--encoding', 'utf-8',
       '--concurrent-fragments', '8',
       '--user-agent', UA,
-      '-f', 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b',
+      '-f', this.format || 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b',
       '--merge-output-format', 'mp4',
       // 完成后把真实最终路径写入 UTF-8 文件（绕过控制台编码，根治显示名乱码）
       '--print-to-file', 'after_move:filepath', path.join(cfg.downloadDir, `.cdown-path-${this.id}.txt`),
@@ -190,4 +236,4 @@ class YtDlpDownloader extends EventEmitter {
   }
 }
 
-module.exports = { YtDlpDownloader, probe, findBinary };
+module.exports = { YtDlpDownloader, probe, probeFormats, findBinary };

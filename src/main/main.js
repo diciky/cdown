@@ -13,6 +13,7 @@ if (app.isPackaged) {
 
 const { Queue } = require('../engine/queue');
 const config = require('../engine/config');
+const sniffer = require('../engine/sniffer');
 
 let win = null;
 const queue = new Queue();
@@ -61,13 +62,14 @@ queue.on('error', s => { push(); if (win && !win.isDestroyed()) win.webContents.
 queue.on('add-failed', s => { if (win && !win.isDestroyed()) win.webContents.send('add-failed', s); });
 
 ipcMain.handle('tasks:list', async () => { await queue.loadPersisted(); return queue.snapshotAll(); });
-ipcMain.handle('tasks:add', async (_e, { url, threads, filename }) => { const id = await queue.add(url, { threads, filename }); push(); return id; });
+ipcMain.handle('tasks:add', async (_e, { url, threads, filename, format, formatExt }) => { const id = await queue.add(url, { threads, filename, format, formatExt }); push(); return id; });
 ipcMain.handle('tasks:pause', async (_e, id) => { await queue.pause(id); push(); });
 ipcMain.handle('tasks:resume', async (_e, id) => { await queue.resume(id); push(); });
 ipcMain.handle('tasks:remove', async (_e, id) => { await queue.remove(id); push(); });
 ipcMain.handle('tasks:pauseAll', async () => { await queue.pauseAll(); push(); });
 ipcMain.handle('tasks:clearCompleted', async () => { await queue.clearCompleted(); push(); });
 ipcMain.handle('tasks:restart', async (_e, id) => { await queue.restart(id); push(); });
+ipcMain.handle('sniff:url', async (_e, url) => sniffer.sniff(url));
 ipcMain.handle('tasks:exportLinks', async () => {
   const r = await dialog.showSaveDialog(win, {
     title: '导出任务链接',

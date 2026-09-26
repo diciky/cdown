@@ -218,6 +218,104 @@ $('#btn-settings-save').addEventListener('click', async () => {
   toast('设置已保存');
 });
 
+// ---------- 网址嗅探 ----------
+const sniffModal = $('#sniff-modal');
+let sniffItems = [];
+let sniffing = false;
+
+function sniffStatusLabel(t) {
+  const labels = { video: '视频站点', audio: '音频站点', audiofile: '音频', image: '图片', document: '文档', archive: '压缩包', executable: '程序', subtitle: '字幕', videoPlaylist: '视频流', direct: '直链', unknown: '文件' };
+  return labels[t] || t || '文件';
+}
+
+function fmtSize(n) { return n ? fmtBytes(n) : '未知'; }
+
+function renderSniffResults() {
+  const box = $('#sniff-results');
+  if (sniffItems.length === 0) { box.innerHTML = '<div class="sniff-empty">未发现可下载内容</div>'; return; }
+  box.innerHTML = sniffItems.map((it, i) => `
+    <label class="sniff-item">
+      <input type="checkbox" class="sniff-check" data-i="${i}" checked />
+      <span class="sniff-ext">${it.ext || '?'}</span>
+      <span class="sniff-label" title="${escapeHtml(it.label || it.url)}">${escapeHtml(it.label || it.url)}</span>
+      <span class="sniff-meta">${escapeHtml(it.typeLabel || it.type || '')}</span>
+      <span class="sniff-size">${fmtSize(it.size)}</span>
+    </label>`).join('');
+  box.querySelectorAll('.sniff-check').forEach(cb => cb.addEventListener('change', updateSniffButtons));
+}
+
+function updateSniffButtons() {
+  const any = !!document.querySelector('.sniff-check:checked');
+  $('#btn-sniff-download').disabled = !any || sniffing;
+  const boxes = [...document.querySelectorAll('.sniff-check')];
+  $('#sniff-checkall').checked = boxes.length > 0 && boxes.every(b => b.checked);
+}
+
+async function doSniff() {
+  if (sniffing) return;
+  const url = $('#sniff-url').value.trim();
+  if (!url) { toast('请输入要嗅探的网址', true); return; }
+  sniffing = true;
+  $('#btn-sniff-go').disabled = true;
+  $('#btn-sniff-download').disabled = true;
+  const status = $('#sniff-status');
+  status.textContent = '⏳ 正在嗅探页面，视频站点解析可能需要几秒…';
+  $('#sniff-results').innerHTML = '';
+  try {
+    const r = await window.tdm.sniffUrl(url);
+    if (r.error) { status.textContent = '❌ ' + r.error; return; }
+    if (!r.items || r.items.length === 0) { status.textContent = '未发现可下载内容'; return; }
+    status.textContent = r.extractor
+      ? `✅ ${r.extractor}：${r.title || ''}（${r.items.length} 个画质/音质可选）`
+      : `✅ 发现 ${r.items.length} 个可下载项`;
+    sniffItems = r.items.map(it => ({
+      ...it,
+      typeLabel: it.typeLabel || sniffStatusLabel(it.type),
+      ext: (it.ext || '?').toUpperCase()
+    }));
+    renderSniffResults();
+  } catch (e) {
+    status.textContent = '❌ 嗅探失败: ' + (e.message || e);
+  } finally {
+    sniffing = false;
+    $('#btn-sniff-go').disabled = false;
+    updateSniffButtons();
+  }
+}
+
+async function downloadSniffed() {
+  const checked = [...document.querySelectorAll('.sniff-check:checked')]
+    .map(cb => sniffItems[Number(cb.dataset.i)]).filter(Boolean);
+  if (checked.length === 0) return;
+  const threads = Math.min(64, Math.max(1, Number($('#sniff-threads').value) || 32));
+  let ok = 0, fail = 0;
+  for (const it of checked) {
+    try {
+      await window.tdm.addTask(it.url, { threads, format: it.formatId || undefined, formatExt: it.formatId ? (it.ext || 'mp4').toLowerCase() : undefined });
+      ok++;
+    } catch { fail++; }
+  }
+  sniffModal.classList.add('hidden');
+  toast(fail ? `已添加 ${ok} 个任务，${fail} 个失败` : `已添加 ${ok} 个下载任务`);
+}
+
+$('#btn-sniff').addEventListener('click', () => {
+  $('#sniff-url').value = $('#url-input').value.trim();
+  sniffModal.classList.remove('hidden');
+  if ($('#sniff-url').value) doSniff();
+  else $('#sniff-url').focus();
+});
+$('#btn-sniff-go').addEventListener('click', doSniff);
+$('#sniff-url').addEventListener('keydown', e => { if (e.key === 'Enter') doSniff(); });
+$('#btn-sniff-download').addEventListener('click', downloadSniffed);
+$('#btn-sniff-close').addEventListener('click', () => sniffModal.classList.add('hidden'));
+sniffModal.addEventListener('click', e => { if (e.target === sniffModal) sniffModal.classList.add('hidden'); });
+$('#sniff-checkall').addEventListener('change', () => {
+  const on = $('#sniff-checkall').checked;
+  document.querySelectorAll('.sniff-check').forEach(cb => { cb.checked = on; });
+  updateSniffButtons();
+});
+
 // ---------- 剪贴板自动识别 ----------
 const cbModal = $('#clipboard-modal');
 let cbCurrent = null;

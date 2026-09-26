@@ -170,6 +170,30 @@ button.icon { padding: 6px 9px; }
 .check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); margin-top: 12px; cursor: pointer; }
 .check-row input { width: auto; }
 
+/* 嗅探结果 */
+.sniff-body { width: 640px; max-width: 92vw; }
+.sniff-results {
+  margin-top: 4px; max-height: 320px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 10px; background: #fafbfc;
+}
+.sniff-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid #f0f1f4; cursor: pointer; font-size: 12px;
+}
+.sniff-item:last-child { border-bottom: none; }
+.sniff-item:hover { background: #f0f4fb; }
+.sniff-item input[type="checkbox"] { flex-shrink: 0; }
+.sniff-ext {
+  flex-shrink: 0; font-size: 10px; font-weight: 700; color: var(--primary);
+  background: #e8edfb; border-radius: 6px; padding: 2px 6px; min-width: 40px; text-align: center;
+}
+.sniff-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.sniff-meta { flex-shrink: 0; font-size: 11px; color: var(--text2); }
+.sniff-size { flex-shrink: 0; font-size: 11px; color: var(--text2); font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; }
+.sniff-empty { padding: 24px; text-align: center; color: var(--text2); font-size: 13px; }
+.sniff-ops { margin-top: 10px; align-items: center; gap: 8px; }
+.sniff-ops input[type="number"] { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; width: 78px; }
+
 /* Toast */
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
