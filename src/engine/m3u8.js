@@ -9,8 +9,9 @@ const { UA, fmtBytes } = require('./downloader');
 
 function findFfmpeg(cfg) {
   if (cfg.ffmpegBin && fs.existsSync(cfg.ffmpegBin)) return cfg.ffmpegBin;
-  const candidates = [path.join(__dirname, '..', '..', 'bin', 'ffmpeg.exe')];
-  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'bin', 'ffmpeg.exe'));
+  const name = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const candidates = [path.join(__dirname, '..', '..', 'bin', name)];
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'bin', name));
   for (const c of candidates) if (fs.existsSync(c)) return c;
   return 'ffmpeg'; // 依赖 PATH
 }

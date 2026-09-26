@@ -1,0 +1,94 @@
+name: Release
+
+# 推送 v* 标签时自动构建全平台安装包并发布到 Releases（附更新记录）
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 下载 yt-dlp
+        shell: bash
+        run: |
+          mkdir -p bin
+          case "${{ runner.os }}" in
+            Windows)
+              curl -sL -o bin/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe ;;
+            Linux)
+              curl -sL -o bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+              chmod +x bin/yt-dlp ;;
+            macOS)
+              curl -sL -o bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+              chmod +x bin/yt-dlp ;;
+          esac
+          ls -la bin/
+
+      - name: 下载 ffmpeg（失败不阻塞构建）
+        shell: bash
+        continue-on-error: true
+        run: bash scripts/fetch-ffmpeg.sh
+
+      - name: 构建安装包
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            npx electron-builder --win
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            npx electron-builder --mac
+          else
+            npx electron-builder --linux
+          fi
+
+      - name: 打包浏览器扩展（仅 Linux 任务执行一次）
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cd extension
+          zip -r "../dist/CDown-Extension-${GITHUB_REF_NAME}.zip" . -x '*.DS_Store'
+
+      - name: 生成更新记录
+        shell: bash
+        run: |
+          PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            git log --pretty='- %s (%h)' "$PREV..${GITHUB_REF_NAME}" > release-notes.md
+          else
+            git log --pretty='- %s (%h)' > release-notes.md
+          fi
+          { echo "## 📝 更新内容（${GITHUB_REF_NAME}）"; echo ""; cat release-notes.md; } > release-body.md
+          cat release-body.md
+
+      - name: 发布到 Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-body.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+            dist/CDown-Extension-*.zip

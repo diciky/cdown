@@ -13,12 +13,15 @@ function ytdlpEnv() {
   return { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' };
 }
 
+const IS_WIN = process.platform === 'win32';
+
 function findBinary() {
   const cfg = require('./config').load();
   if (cfg.ytdlpBin && fs.existsSync(cfg.ytdlpBin)) return cfg.ytdlpBin;
   // 开发环境：项目 bin/；打包后：resources/bin/（electron-builder extraResources）
-  const candidates = [path.join(__dirname, '..', '..', 'bin', 'yt-dlp.exe')];
-  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'bin', 'yt-dlp.exe'));
+  const name = IS_WIN ? 'yt-dlp.exe' : 'yt-dlp';
+  const candidates = [path.join(__dirname, '..', '..', 'bin', name)];
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'bin', name));
   for (const c of candidates) if (fs.existsSync(c)) return c;
   return null; // 由调用方决定是否尝试 PATH
 }
@@ -167,11 +170,16 @@ class YtDlpDownloader extends EventEmitter {
     const proc = this._proc;
     this._proc = null;
     if (proc && proc.pid) {
-      // 关键：yt-dlp.exe 是 PyInstaller onefile（引导器+Python 子进程），
-      // proc.kill() 只杀引导器，子进程会继续下载 —— 必须杀整棵进程树
-      const tk = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true });
-      tk.on('error', () => { try { proc.kill(); } catch { /* 已退出 */ } });
-      tk.on('exit', c => this._log(c === 0 ? '⏸ 已终止 yt-dlp 进程树' : `⏸ taskkill 退出码 ${c}（可能已自行退出）`));
+      if (IS_WIN) {
+        // Windows：yt-dlp.exe 是 PyInstaller onefile（引导器+Python 子进程），
+        // proc.kill() 只杀引导器 —— 必须杀整棵进程树
+        const tk = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true });
+        tk.on('error', () => { try { proc.kill(); } catch { /* 已退出 */ } });
+        tk.on('exit', c => this._log(c === 0 ? '⏸ 已终止 yt-dlp 进程树' : `⏸ taskkill 退出码 ${c}（可能已自行退出）`));
+      } else {
+        // Linux/macOS：onefile 为单进程，直接 SIGTERM
+        try { proc.kill('SIGTERM'); this._log('⏸ 已终止 yt-dlp 进程'); } catch { /* 已退出 */ }
+      }
     }
     this.emit('progress', this.snapshot());
   }

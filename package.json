@@ -30,6 +30,22 @@
       ],
       "icon": "build/icon.ico"
     },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Network"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

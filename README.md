@@ -42,6 +42,17 @@
 |---|---|
 | `CDown Setup x.x.exe` | 安装版（可选安装目录、创建桌面快捷方式） |
 | `CDown x.x.exe` | 便携版（免安装，单文件直接运行） |
+| `CDown-x.x.dmg` / `.zip` | macOS（Apple Silicon & Intel） |
+| `CDown-x.x.AppImage` / `.deb` | Linux |
+| `CDown-Extension-vx.x.zip` | 浏览器扩展包 |
+
+## 🤖 自动构建（GitHub Actions）
+
+推送 `v*` 标签即触发云端构建，**无需本地打包**——三平台（Windows / macOS / Linux）矩阵并行，
+产物自动发布到 [Releases](../../releases)，并附自动生成的**更新记录**（提交记录 + [`CHANGELOG.md`](CHANGELOG.md) 对应章节）。
+
+> **移动端说明**：CDown 基于 Electron（桌面框架），iOS/Android 无原生版本。安卓用户可通过支持扩展的
+> 浏览器（Firefox for Android / Kiwi）安装 Release 里的扩展 zip，获得右键下载与媒体嗅探能力。
 
 ## 🚀 从源码运行
 
@@ -52,10 +63,12 @@ npm install
 npm start
 ```
 
-### 打包 exe
+### 本地打包（可选，日常发版走 CI）
 
 ```bash
-npm run dist
+npm run dist      # Windows
+npx electron-builder --mac    # macOS
+npx electron-builder --linux  # Linux
 ```
 
 > **前置准备**：`bin/yt-dlp.exe` 不随仓库分发，请从
