@@ -1,8 +1,12 @@
 name: Release
 
-# 推送 v* 标签时自动构建全平台安装包并发布到 Releases（附更新记录）
+# 推送到 main 或打 v* 标签时自动构建：
+#   - main 推送：三平台构建验证（产物存 Actions Artifacts，不发 Release）
+#   - v* 标签：三平台构建 + 发布到 Releases（附更新记录）
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -88,6 +92,7 @@ jobs:
 
   release:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

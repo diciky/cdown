@@ -2,6 +2,10 @@
 
 > 自 v0.2.3 起，**发版不再本地构建**：推送 `v*` 标签 → GitHub Actions 自动完成
 > Windows / macOS / Linux 三平台构建 + 浏览器扩展打包 + 发布 Releases + 附更新记录。
+>
+> **CI 触发规则**：
+> - 每次 `git push` 到 `main` → 立即触发三平台构建验证（产物在 Actions 页的 Artifacts 里下载，不发布 Release）
+> - 推送 `v*` 标签 → 三平台构建 + 自动发布到 Releases（附更新记录）
 
 ## 一、标准发版流程（本地三步）
 
