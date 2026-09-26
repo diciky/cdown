@@ -10,8 +10,9 @@ case "$RUNNER_OS" in
     ;;
   Linux)
     echo "下载 Linux ffmpeg (johnvansickle static)..."
-    curl -sL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | tar -xJ -C /tmp
-    find /tmp -name ffmpeg -type f -exec cp {} bin/ffmpeg \;
+    mkdir -p /tmp/ffmpeg-extract
+    curl -sL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | tar -xJ -C /tmp/ffmpeg-extract
+    cp /tmp/ffmpeg-extract/ffmpeg-*-amd64-static/ffmpeg bin/ffmpeg
     chmod +x bin/ffmpeg
     ;;
   macOS)

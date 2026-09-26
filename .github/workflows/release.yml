@@ -53,11 +53,11 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            npx electron-builder --win
+            npx electron-builder --win --publish never
           elif [ "${{ runner.os }}" = "macOS" ]; then
-            npx electron-builder --mac
+            npx electron-builder --mac --publish never
           else
-            npx electron-builder --linux
+            npx electron-builder --linux --publish never
           fi
 
       - name: 打包浏览器扩展（仅 Linux 任务执行一次）
