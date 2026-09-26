@@ -67,6 +67,39 @@ jobs:
           cd extension
           zip -r "../dist/CDown-Extension-${GITHUB_REF_NAME}.zip" . -x '*.DS_Store'
 
+      - name: 收集产物
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp dist/*.exe artifacts/ 2>/dev/null || true
+          cp dist/*.dmg artifacts/ 2>/dev/null || true
+          cp dist/*.zip artifacts/ 2>/dev/null || true
+          cp dist/*.AppImage artifacts/ 2>/dev/null || true
+          cp dist/*.deb artifacts/ 2>/dev/null || true
+          cp dist/CDown-Extension-*.zip artifacts/ 2>/dev/null || true
+          ls -la artifacts/
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.os }}
+          path: artifacts/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 汇总产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
       - name: 生成更新记录
         shell: bash
         run: |
@@ -78,6 +111,8 @@ jobs:
           fi
           { echo "## 📝 更新内容（${GITHUB_REF_NAME}）"; echo ""; cat release-notes.md; } > release-body.md
           cat release-body.md
+          echo "--- 产物清单 ---"
+          ls -la artifacts/
 
       - name: 发布到 Releases
         uses: softprops/action-gh-release@v2
@@ -85,10 +120,4 @@ jobs:
           body_path: release-body.md
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-            dist/CDown-Extension-*.zip
+          files: artifacts/*
