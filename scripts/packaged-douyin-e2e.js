@@ -19,6 +19,8 @@ const APP = path.join(__dirname, '..', 'dist', 'mac-arm64', 'CDown.app');
 const BIN = path.join(APP, 'Contents', 'MacOS', 'CDown');
 const PORT = Number(process.env.CDOWN_PORT || 8791);
 const DOUYIN_URL = process.env.DOUYIN_URL || 'https://www.douyin.com/video/6961737553342991651';
+// 长视频的 1080P 有 800MB+，验证链路没必要下这么大；用环境变量指定一档小的
+const QUALITY = process.env.DOUYIN_QUALITY || '';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function get(url) {
@@ -57,7 +59,8 @@ const check = (name, cond, extra = '') => {
   fs.mkdirSync(dlDir, { recursive: true });
   // 预置配置：把下载目录指向临时目录，别污染用户真实的 ~/Downloads
   fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({
-    downloadDir: dlDir, maxThreads: 8, maxConcurrent: 1, serverPort: PORT, clipboardMonitor: false
+    downloadDir: dlDir, maxThreads: 8, maxConcurrent: 1, serverPort: PORT, clipboardMonitor: false,
+    ...(QUALITY ? { douyinQuality: QUALITY } : {})
   }, null, 2));
 
   const appEnv = { ...process.env, TDM_DATA_DIR: dataDir };
@@ -67,7 +70,8 @@ const check = (name, cond, extra = '') => {
   delete appEnv.BASH_ENV;
 
   console.log(`被测应用: ${APP}`);
-  console.log(`抖音链接: ${DOUYIN_URL}\n`);
+  console.log(`抖音链接: ${DOUYIN_URL}`);
+  console.log(`清晰度  : ${QUALITY || '（全局默认 best）'}\n`);
 
   const app = spawn(BIN, ['--no-sandbox'], { env: appEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   const appLog = [];

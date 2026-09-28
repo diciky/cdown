@@ -407,7 +407,7 @@ async function openDouyinModal(url, threads) {
   if (r.cover) { cover.src = r.cover; cover.style.display = ''; }
   $('#dy-status').textContent = `✅ 共 ${r.variants.length} 档清晰度，选一档开始下载`;
   $('#dy-variants').innerHTML = r.variants.map((v, i) => `
-    <label class="dy-variant">
+    <label class="dy-variant" title="${v.codec === 'h265' ? 'H.265 编码：文件更小，但部分老播放器/设备不支持' : 'H.264 编码：兼容性最好'}">
       <input type="radio" name="dy-quality" value="${i}" ${i === 0 ? 'checked' : ''} />
       <span class="dy-q-label">${escapeHtml(v.label || '默认')}</span>
       <span class="dy-q-dim">${v.width && v.height ? `${v.width}×${v.height}` : ''}</span>

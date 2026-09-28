@@ -31,12 +31,18 @@ const MEDIA_HEADERS = { 'user-agent': UA, 'referer': HOME_URL };
 
 // ---------- URL 解析（纯函数，可单测） ----------
 
+// 抖音网页版在「列表页里弹出播放」时，作品 ID 放在查询参数里而不是路径上。
+// 路径上只有板块名（/jingxuan、/discover、/follow、/search/…），甚至是个用户主页。
+// 例如 https://www.douyin.com/jingxuan?modal_id=7689058205258779914
+const QUERY_ID_KEYS = ['modal_id', 'aweme_id', 'item_id', 'vid'];
+
 // 支持：长链 /video/<id>、/note/<id>、短链 v.douyin.com/xxx、
-//       iesdouyin 分享页 /share/video/<id>、以及分享文案里夹带的链接
+//       iesdouyin 分享页 /share/video/<id>、列表页弹窗 /jingxuan?modal_id=<id>、
+//       以及分享文案里夹带的链接
 function parseUrl(input) {
   const text = String(input || '').trim();
   // 从分享文案里抠出链接（抖音分享默认是「文案 + 链接」一整段）
-  const m = text.match(/https?:\/\/[^\s，,。；;]+/);
+  const m = text.match(/https?:\/\/[^\s，,。；;、]+/);
   const url = m ? m[0] : text;
   let u;
   try { u = new URL(url); } catch { return null; }
@@ -51,39 +57,71 @@ function parseUrl(input) {
 
   const segs = u.pathname.split('/').filter(Boolean);
   const at = (name) => { const i = segs.indexOf(name); return i >= 0 ? segs[i + 1] : null; };
+  const isId = v => !!v && /^\d{6,}$/.test(v);
 
-  const videoId = at('video') || at('slides') || (segs[0] === 'share' && segs[1] === 'video' ? segs[2] : null);
-  if (videoId && /^\d{6,}$/.test(videoId)) return { kind: 'video', id: videoId, url };
+  // 1) 路径上的作品 ID —— 最规范的形式，优先级最高
+  const pathVideo = at('video') || at('slides') || (segs[0] === 'share' && segs[1] === 'video' ? segs[2] : null);
+  if (isId(pathVideo)) return { kind: 'video', id: pathVideo, url };
 
-  const noteId = at('note');
-  if (noteId && /^\d{6,}$/.test(noteId)) return { kind: 'note', id: noteId, url };
+  const pathNote = at('note') || (segs[0] === 'share' && segs[1] === 'note' ? segs[2] : null);
+  if (isId(pathNote)) return { kind: 'note', id: pathNote, url };
 
-  if (at('user') || segs[0] === 'user') return { kind: 'user', id: at('user') || segs[1] || null, url };
+  // 2) 查询参数上的作品 ID。
+  // 必须排在 user / live 判断之前 —— 否则 douyin.com/user/xxx?modal_id=<id>
+  // 会被报成「这是用户主页」，而用户其实明明点的是一个具体视频。
+  for (const key of QUERY_ID_KEYS) {
+    const v = u.searchParams.get(key);
+    if (isId(v)) return { kind: 'video', id: v, url };
+  }
+
+  // 3) 直播间 / 用户主页（确认没有作品 ID 之后才这么判断）
+  if (/^live\./.test(host)) return { kind: 'live', id: segs[0] || null, url };
   if (at('live')) return { kind: 'live', id: at('live'), url };
+  if (at('user') || segs[0] === 'user') return { kind: 'user', id: at('user') || segs[1] || null, url };
 
-  // 首页短链之外的未知形式：把 id 交给调用方再判断
+  // 4) 兜底：任何一段纯数字路径
   const tail = segs[segs.length - 1];
-  if (tail && /^\d{6,}$/.test(tail)) return { kind: 'video', id: tail, url };
+  if (isId(tail)) return { kind: 'video', id: tail, url };
   return { kind: 'unknown', id: null, url };
 }
 
 // 从 aweme_detail 里挑清晰度档位。
-// bit_rate 数组每档形如 { gear_name, play_addr: { width, height, data_size, url_list } }
+// bit_rate 数组每档形如 { gear_name, format, is_h265, play_addr: { width, height, data_size, url_list } }
 //
-// 关于「档位数字」（tier）：必须优先取 gear_name 里的数字，不能拿 addr.height 当档位。
-// 抖音竖屏作品是 1080×1920，gear_name 是 normal_1080_0，用户看到的就是「1080P」；
-// 而 addr.height 是 1920 —— 直接拿来当档位，1080P 会被标成 1920P，
-// 排序、去重、"不超过目标分辨率"的挑选逻辑会全部错位。
+// 这里要处理抖音返回的三个「坑」，缺一个用户就会拿到错的东西：
+//
+// 1) **同一清晰度有很多条**。长视频的 bit_rate 可能有 20+ 条，但只有 4 个清晰度 ——
+//    抖音为同一清晰度提供了多个码率（h264/h265、不同编码档），
+//    不去重的话界面上会列出二十行几乎一样的「720P」，用户根本没法选。
+//
+// 2) **format=dash 的条目没有音频**。实测：同档位的 mp4 条目 ffmpeg 看到 2 条流
+//    （hevc 视频 + HE-AACv2 音频），dash 条目只有 1 条视频流 ——
+//    因为 dash 的音频是独立文件（条目里带 sub_info.audio_file_id）。
+//    直接下 dash 会得到一段无声视频。必须排除。
+//
+// 3) **档位数字不能用 addr.height**。竖屏作品是 1080×1920，gear_name 是 normal_1080_0
+//    （用户看到「1080P」），而 addr.height 是 1920 —— 拿它当档位，
+//    1080P 会被标成 1920P，排序和「不超过目标分辨率」的挑选逻辑会全部错位。
 function pickVariants(detail) {
   const video = (detail && detail.video) || {};
-  const out = [];
-  const push = (label, addr, tier) => {
+  const rows = [];
+
+  const collect = (addr, gear, fmt, isH265) => {
     const urls = (addr && addr.url_list) || [];
     const url = urls.find(u => /douyinvod\.com|douyin\.com\/aweme\/v1\/play/.test(u));
     if (!url) return;
-    out.push({
-      label,
-      tier: tier || 0,
+    const g = String(gear || '');
+    // gear_name 形如 normal_1080_0 / lower_540_0 / 720_4_1 / comet_bvc1_r3_adapt_lowest_720_1
+    const hMatch = g.match(/(\d{3,4})/);
+    const sides = [addr.width, addr.height].filter(n => Number(n) > 0);
+    rows.push({
+      gear: g,
+      named: !!hMatch,                                   // 是否拿到了明确档位数字
+      // 没有档位数字时退回短边（≈ 清晰度档），而不是长边
+      tier: hMatch ? Number(hMatch[1]) : (sides.length ? Math.min(...sides) : 0),
+      low: /lower|lowest|adapt_lowest/.test(g),          // 抖音的「流畅」档
+      h265: isH265 === true,
+      fmt: fmt || '',
       width: addr.width || 0,
       height: addr.height || 0,
       size: addr.data_size || 0,
@@ -92,29 +130,46 @@ function pickVariants(detail) {
   };
 
   for (const br of video.bit_rate || []) {
-    const addr = br.play_addr || {};
-    const gear = String(br.gear_name || '');
-    // gear_name 形如 normal_1080_0 / lower_540_0 / comet_bvc1_r3_adapt_lowest_720_1
-    const hMatch = gear.match(/(\d{3,4})/);
-    const sides = [addr.width, addr.height].filter(n => Number(n) > 0);
-    // 没有数字时退回短边（≈ 清晰度档），而不是长边
-    const tier = hMatch ? Number(hMatch[1]) : (sides.length ? Math.min(...sides) : 0);
-    const low = /lower|lowest|adapt_lowest/.test(gear);
-    const label = tier ? `${tier}P${low ? '（流畅）' : ''}` : gear;
-    push(label, addr, tier);
+    collect(br.play_addr || {}, br.gear_name, br.format, br.is_h265 === 1);
   }
-  // bit_rate 为空时退回默认 play_addr
-  if (!out.length) {
-    const addr = video.play_addr || {};
-    const sides = [addr.width, addr.height].filter(n => Number(n) > 0);
-    push('默认', addr, sides.length ? Math.min(...sides) : 0);
+  // bit_rate 为空（短视频常见）时退回默认 play_addr
+  if (!rows.length) collect(video.play_addr || {}, '', 'mp4', video.is_h265 === 1);
+
+  // 排除 dash（只有视频轨）。全是 dash 的极端情况下保留全部，但会标注「无音轨」，
+  // 至少不会让用户莫名其妙拿到无声视频。
+  const playable = rows.filter(r => r.fmt !== 'dash');
+  const noAudio = playable.length === 0;
+  const pool = noAudio ? rows : playable;
+
+  // 同一「清晰度 + 编码 + 是否流畅档」只留一条，取体积最大的（= 码率最高 = 画质最好）。
+  // 流畅档（lower_540_0 之类）要单独成组：它和普通档同为 540P，但体积小 30%，
+  // 是弱网用户真正想要的选项，不能被普通档吞掉。
+  // 而 low_720_0 与 normal_720_0 体积只差 2%（其实是同一档），归为一组去重。
+  const byKey = new Map();
+  for (const r of pool) {
+    const key = `${r.tier}|${r.h265 ? 'h265' : 'h264'}|${r.low ? 'low' : 'normal'}`;
+    const prev = byKey.get(key);
+    if (!prev || r.size > prev.size) byKey.set(key, r);
   }
 
-  // 去重（同一档可能有多个镜像），按档位降序
-  const seen = new Set();
-  return out
-    .filter(v => { const k = `${v.label}|${v.size}`; if (seen.has(k)) return false; seen.add(k); return true; })
-    .sort((a, b) => (b.tier - a.tier) || (b.size - a.size));
+  const out = [...byKey.values()].map(r => ({
+    label: r.named
+      ? `${r.tier}P${r.low ? '（流畅）' : ''}${r.h265 ? ' · H.265' : ''}${noAudio ? '（无音轨）' : ''}`
+      : '默认',
+    tier: r.tier,
+    codec: r.h265 ? 'h265' : 'h264',
+    low: r.low,
+    width: r.width,
+    height: r.height,
+    size: r.size,
+    url: r.url
+  }));
+
+  // 档位降序；同档位 h264 优先（兼容性最好），再按体积降序
+  return out.sort((a, b) =>
+    (b.tier - a.tier) ||
+    ((a.codec === 'h264' ? 0 : 1) - (b.codec === 'h264' ? 0 : 1)) ||
+    (b.size - a.size));
 }
 
 function pickBest(variants, prefer) {
@@ -125,7 +180,10 @@ function pickBest(variants, prefer) {
   // 否则「720P（流畅）」会被按数字解析成 720，进而挑到另一档普通 720P。
   const exact = variants.find(v => v.label === s);
   if (exact) return exact;
-  const want = Number(s.replace(/\D/g, ''));
+  // 退回按档位数字挑。**只取开头的数字** —— 用 replace(/\D/g, '') 会把
+  // 「1080P · H.265」变成 1080265，挑出一档完全不相干的。
+  const m = s.match(/^(\d{3,4})/);
+  const want = m ? Number(m[1]) : 0;
   if (!want) return variants[0];
   // 优先不超过目标档位的最高档，避免为了「1080P」硬拉一档更大的
   const fit = variants.filter(v => v.tier && v.tier <= want);

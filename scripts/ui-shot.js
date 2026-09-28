@@ -36,15 +36,19 @@ const FAKE_TASKS = [
   }
 ];
 
+// 档位形状对齐真实长视频：去重后 7 档，含 H.265 与「流畅」档
 const FAKE_DETAIL = {
-  ok: true, id: '6961737553342991651', author: '杨超越',
-  desc: '#杨超越  小小水手带你去远航❤️', durationMs: 19782, music: '小小水手',
+  ok: true, id: '7689058205258779914', author: '陈龙科普',
+  desc: '仅用一个视频，便能让你了解长江完整的水系分布，你信吗？ #长江 #地理科普', durationMs: 1855100, music: '轻音乐',
   cover: '', isImages: false, imageCount: 0,
   variants: [
-    { label: '1080P', width: 1080, height: 1920, size: 6281768 },
-    { label: '720P', width: 720, height: 1280, size: 4100000 },
-    { label: '540P（流畅）', width: 540, height: 960, size: 3500000 },
-    { label: '360P（流畅）', width: 360, height: 640, size: 2400000 }
+    { label: '1080P', width: 1920, height: 1080, size: 900431812, codec: 'h264' },
+    { label: '1080P · H.265', width: 1920, height: 1080, size: 389624718, codec: 'h265' },
+    { label: '720P', width: 1280, height: 720, size: 574619648, codec: 'h264' },
+    { label: '720P · H.265', width: 1280, height: 720, size: 227426683, codec: 'h265' },
+    { label: '540P', width: 1024, height: 576, size: 498397307, codec: 'h264' },
+    { label: '540P（流畅）', width: 1024, height: 576, size: 301971237, codec: 'h264' },
+    { label: '540P · H.265', width: 1024, height: 576, size: 119523119, codec: 'h265' }
   ]
 };
 
@@ -142,7 +146,23 @@ app.whenReady().then(async () => {
         kindText: kindDy && kindDy.textContent,
         authorText: document.querySelector('#dy-author').textContent,
         statsText: document.querySelector('#dy-stats').textContent,
-        statusText: document.querySelector('#dy-status').textContent
+        statusText: document.querySelector('#dy-status').textContent,
+        modalScrollable: (() => {
+          const b = document.querySelector('.dy-body');
+          return getComputedStyle(b).overflowY === 'auto' && b.scrollHeight >= b.clientHeight;
+        })(),
+        modalSize: (() => {
+          const b = document.querySelector('.dy-body');
+          return { scrollH: b.scrollHeight, clientH: b.clientHeight, maxH: getComputedStyle(b).maxHeight };
+        })(),
+        addBtnVisible: (() => {
+          const r = document.querySelector('#btn-dy-add').getBoundingClientRect();
+          return r.top >= 0 && r.bottom <= window.innerHeight + 1 && r.width > 0;
+        })(),
+        addBtnRect: (() => {
+          const r = document.querySelector('#btn-dy-add').getBoundingClientRect();
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), winH: window.innerHeight };
+        })()
       };
     })()
   `);
@@ -177,7 +197,7 @@ app.whenReady().then(async () => {
   const check = (n, c) => { console.log(`  ${c ? '✅' : '❌'} ${n}`); if (!c) failed++; };
   console.log('\n断言:');
   check('弹窗已打开', checks.modalVisible);
-  check('列出 4 档清晰度', checks.variantCount === 4);
+  check('列出 7 档清晰度（去重后）', checks.variantCount === 7, `实际 ${checks.variantCount}`);
   check('「添加下载」按钮可用', checks.addEnabled);
   check('档位字号是 13px（未被 .modal-body label 的 12px 覆盖）', checks.variantFontSize === '13px');
   check('档位 margin-top 归零（未被 .modal-body label 的 8px 覆盖）', checks.variantMarginTop === '0px');
@@ -187,10 +207,13 @@ app.whenReady().then(async () => {
   check('档位大小不换行', checks.sizeWhiteSpace === 'nowrap');
   check('抖音标签渲染成粉色底', checks.kindBg === 'rgb(255, 233, 242)');
   check('抖音标签文字为「抖音」', checks.kindText === '抖音');
-  check('作者名已显示', checks.authorText === '杨超越');
+  check('作者名已显示', checks.authorText === FAKE_DETAIL.author, checks.authorText);
   check('时长+音乐已显示', /3:18|19\.8|0:19/.test(checks.statsText) || checks.statsText.length > 0, checks.statsText);
   check('渲染无控制台报错', errors.length === 0, errors.slice(0, 3).join(' | '));
-  check('粘贴「文案 + 链接」整段分享文本也会触发解析弹窗', shareCheck.modalVisible && shareCheck.variantCount === 4, JSON.stringify(shareCheck));
+  check('粘贴「文案 + 链接」整段分享文本也会触发解析弹窗', shareCheck.modalVisible && shareCheck.variantCount === 7, JSON.stringify(shareCheck));
+  // 档位数多时弹窗必须能滚，否则「添加下载」按钮会被挤出视口点不到
+  check('弹窗内容超出时可滚动（按钮不会被挤出视口）', checks.modalScrollable, JSON.stringify(checks.modalSize));
+  check('「添加下载」按钮在视口内可见', checks.addBtnVisible, JSON.stringify(checks.addBtnRect));
 
   console.log(`\n${failed === 0 ? '✅ 界面冒烟测试通过' : `❌ ${failed} 项失败`}`);
   app.exit(failed === 0 ? 0 : 1);

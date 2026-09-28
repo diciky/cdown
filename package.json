@@ -1,6 +1,6 @@
 {
   "name": "cdown",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "CDown - 极速多线程下载器 (Electron)",
   "main": "src/main/main.js",
   "author": "diciky <diciky.zl@gmail.com>",

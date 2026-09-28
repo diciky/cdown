@@ -156,7 +156,7 @@ ipcMain.handle('douyin:extract', async (_e, url) => {
       cover: r.cover,
       isImages: r.isImages,
       imageCount: r.images.length,
-      variants: r.variants.map(v => ({ label: v.label, width: v.width, height: v.height, size: v.size }))
+      variants: r.variants.map(v => ({ label: v.label, width: v.width, height: v.height, size: v.size, codec: v.codec }))
     };
   } catch (e) {
     return { ok: false, error: e.message };

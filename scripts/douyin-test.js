@@ -76,6 +76,55 @@ function sha256(f) { return crypto.createHash('sha256').update(fs.readFileSync(f
     assert.strictEqual(r.kind, 'user');
   });
 
+  // 用户实测反馈的链接形式：抖音网页版在「列表页里弹出播放」时，
+  // 作品 ID 放在查询参数 modal_id 里，路径上只有板块名。
+  await t('精选页 /jingxuan?modal_id=<id>（用户实测报障的那种链接）', () => {
+    const r = dy.parseUrl('https://www.douyin.com/jingxuan?modal_id=7689058205258779914');
+    assert.strictEqual(r.kind, 'video');
+    assert.strictEqual(r.id, '7689058205258779914');
+  });
+
+  await t('其它列表页带 modal_id 也要认：discover / follow / 首页 / 搜索结果', () => {
+    for (const u of [
+      'https://www.douyin.com/discover?modal_id=7689058205258779914',
+      'https://www.douyin.com/follow?modal_id=7689058205258779914',
+      'https://www.douyin.com/?modal_id=7689058205258779914',
+      'https://www.douyin.com/search/杨超越?modal_id=7689058205258779914',
+      'https://www.douyin.com/jingxuan?modal_id=7689058205258779914&other=1#top'
+    ]) {
+      const r = dy.parseUrl(u);
+      assert.strictEqual(r.kind, 'video', `${u} 应为 video，实际 ${r.kind}`);
+      assert.strictEqual(r.id, '7689058205258779914', u);
+    }
+  });
+
+  await t('用户主页带 modal_id 时以视频为准（不能报「这是用户主页」）', () => {
+    const r = dy.parseUrl('https://www.douyin.com/user/MS4wLjABAAAA?modal_id=7689058205258779914');
+    assert.strictEqual(r.kind, 'video');
+    assert.strictEqual(r.id, '7689058205258779914');
+  });
+
+  await t('路径上的作品 ID 优先于查询参数（/video/A?modal_id=B → A）', () => {
+    const r = dy.parseUrl('https://www.douyin.com/video/6961737553342991651?modal_id=1111111111111111111');
+    assert.strictEqual(r.id, '6961737553342991651');
+  });
+
+  await t('modal_id 不是纯数字时不误判（回退到原本的板块判断）', () => {
+    assert.strictEqual(dy.parseUrl('https://www.douyin.com/jingxuan?modal_id=abc').kind, 'unknown');
+    assert.strictEqual(dy.parseUrl('https://www.douyin.com/user/MS4wLjABAAAA?modal_id=abc').kind, 'user');
+  });
+
+  await t('直播：live.douyin.com/<roomid> 不能被当成视频', () => {
+    const r = dy.parseUrl('https://live.douyin.com/123456789');
+    assert.strictEqual(r.kind, 'live');
+  });
+
+  await t('iesdouyin 分享页 /share/note/<id> 认成图文', () => {
+    const r = dy.parseUrl('https://www.iesdouyin.com/share/note/6982497745948921092/');
+    assert.strictEqual(r.kind, 'note');
+    assert.strictEqual(r.id, '6982497745948921092');
+  });
+
   await t('非抖音域名 → null', () => {
     assert.strictEqual(dy.parseUrl('https://www.youtube.com/watch?v=abc'), null);
     assert.strictEqual(dy.parseUrl('https://fakedouyin.com/video/123456'), null);
@@ -144,6 +193,108 @@ function sha256(f) { return crypto.createHash('sha256').update(fs.readFileSync(f
     const picked = dy.pickBest(vs, '540P（流畅）');
     assert.strictEqual(picked.label, '540P（流畅）');
     assert.strictEqual(picked.url, 'https://v3.douyinvod.com/ccc');
+  });
+
+  // ==========================================================================
+  console.log('\n【2b】长视频的档位去重（真实数据里有 20+ 条，但只有几个清晰度）');
+
+  // 形状取自真实长视频（30 分钟）的 bit_rate：
+  // 同一清晰度有多个码率版本、h264/h265 两套编码、以及 mp4/dash 两种容器
+  const mk = (gear, fmt, h265, w, h, size, id) => ({
+    gear_name: gear, format: fmt, is_h265: h265,
+    play_addr: { width: w, height: h, data_size: size, url_list: [`https://v3.douyinvod.com/${id}`] }
+  });
+  const LONG = {
+    video: {
+      bit_rate: [
+        mk('normal_1080_0', 'mp4', 0, 1920, 1080, 900431812, 'a'),
+        mk('normal_1080_0', 'dash', 0, 1920, 1080, 886527078, 'b'),
+        mk('normal_720_0', 'mp4', 0, 1280, 720, 574619648, 'c'),
+        mk('low_720_0', 'mp4', 0, 1280, 720, 563714458, 'd'),
+        mk('low_540_0', 'mp4', 0, 1024, 576, 498397307, 'e'),
+        mk('normal_540_0', 'mp4', 0, 1024, 576, 481426900, 'f'),
+        mk('1080_1_1', 'mp4', 1, 1920, 1080, 389624718, 'g'),
+        mk('1080_1_1', 'dash', 1, 1920, 1080, 376514656, 'h'),
+        mk('adapt_low_540_0', 'mp4', 0, 1024, 576, 320574798, 'i'),
+        mk('lower_540_0', 'mp4', 0, 1024, 576, 301971237, 'j'),
+        mk('720_1_1', 'mp4', 1, 1280, 720, 227426683, 'k'),
+        mk('720_2_1', 'mp4', 1, 1280, 720, 176308676, 'l'),
+        mk('720_3_1', 'mp4', 1, 1280, 720, 149921534, 'm'),
+        mk('720_4_1', 'mp4', 1, 1280, 720, 129806069, 'n'),
+        mk('540_2_1', 'mp4', 1, 1024, 576, 119523119, 'o')
+      ]
+    }
+  };
+
+  await t('15 条压缩到 7 档（界面上不再是二十行重复的「720P」）', () => {
+    assert.strictEqual(dy.pickVariants(LONG).length, 7);
+  });
+
+  await t('format=dash 的条目被排除（实测它只有视频轨，下回来是无声视频）', () => {
+    const vs = dy.pickVariants(LONG);
+    assert.ok(!vs.some(v => v.url.endsWith('/b')), '1080P 的 dash 条目不该出现');
+    assert.ok(!vs.some(v => v.url.endsWith('/h')), 'H.265 1080P 的 dash 条目不该出现');
+  });
+
+  await t('同一档位的多个码率只留最大的那个（= 码率最高 = 画质最好）', () => {
+    const vs = dy.pickVariants(LONG);
+    const v1080 = vs.filter(v => v.label === '1080P');
+    assert.strictEqual(v1080.length, 1);
+    assert.strictEqual(v1080[0].size, 900431812);
+    // 720P h265 有 4 个码率（k/l/m/n），应只留最大的 k
+    const v720h = vs.find(v => v.label === '720P · H.265');
+    assert.strictEqual(v720h.size, 227426683);
+  });
+
+  await t('h264 与 h265 分成两档（体积差 2 倍，用户需要能选）', () => {
+    const vs = dy.pickVariants(LONG);
+    assert.ok(vs.some(v => v.label === '1080P' && v.codec === 'h264' && v.size === 900431812));
+    assert.ok(vs.some(v => v.label === '1080P · H.265' && v.codec === 'h265' && v.size === 389624718));
+  });
+
+  await t('「流畅」档不被同分辨率的普通档吞掉（它是弱网用户真正要的选项）', () => {
+    const vs = dy.pickVariants(LONG);
+    const smooth = vs.find(v => v.label === '540P（流畅）');
+    assert.ok(smooth, '540P（流畅）应保留');
+    assert.strictEqual(smooth.size, 301971237);
+    // 普通 540P 保留体积最大的 low_540_0（498MB），而不是 481MB 的 normal_540_0
+    assert.strictEqual(vs.find(v => v.label === '540P').size, 498397307);
+  });
+
+  await t('同档位时 h264 排在 h265 前面（兼容性优先）', () => {
+    const vs = dy.pickVariants(LONG);
+    const i1080 = vs.findIndex(v => v.label === '1080P');
+    const i1080h = vs.findIndex(v => v.label === '1080P · H.265');
+    assert.ok(i1080 < i1080h, '1080P 应排在 1080P · H.265 之前');
+  });
+
+  await t('pickBest: 含 H.265 的 label 能精确命中', () => {
+    const vs = dy.pickVariants(LONG);
+    assert.strictEqual(dy.pickBest(vs, '1080P · H.265').codec, 'h265');
+  });
+
+  await t('pickBest: 数字回退只取开头数字（"1080P · H.265" 不能被拼成 1080265）', () => {
+    const vs = dy.pickVariants(LONG);
+    // 若用 replace(/\D/g,'') 会得到 1080265 → fit 为空 → 退回 variants[0]，纯属巧合仍正确；
+    // 这里用一个只有 h265 低档位的集合把差异暴露出来
+    const only720h265 = vs.filter(v => v.tier === 720 && v.codec === 'h265');
+    const picked = dy.pickBest(only720h265, '720P · H.265');
+    assert.strictEqual(picked.tier, 720);
+    assert.strictEqual(dy.pickBest(vs, '720').tier, 720);
+  });
+
+  await t('全是 dash 的极端情况：不静默返回空，而是保留并标注「无音轨」', () => {
+    const allDash = {
+      video: {
+        bit_rate: [
+          mk('normal_1080_0', 'dash', 0, 1920, 1080, 886527078, 'b'),
+          mk('normal_720_0', 'dash', 0, 1280, 720, 574619648, 'c')
+        ]
+      }
+    };
+    const vs = dy.pickVariants(allDash);
+    assert.strictEqual(vs.length, 2, '不能因为排除 dash 就把档位清空');
+    assert.ok(vs.every(v => /无音轨/.test(v.label)), `应标注无音轨，实际 ${vs.map(v => v.label).join('/')}`);
   });
 
   // ==========================================================================
