@@ -5,7 +5,7 @@ let filter = 'all';
 const $ = sel => document.querySelector(sel);
 const listEl = $('#task-list');
 
-const KIND_LABEL = { http: 'HTTP', hls: 'HLS', ytdlp: '视频' };
+const KIND_LABEL = { http: 'HTTP', hls: 'HLS', ytdlp: '视频', bt: 'BT' };
 const STATUS_LABEL = {
   pending: '排队中', probing: '探测中', downloading: '下载中',
   merging: '合并中', paused: '已暂停', completed: '已完成', error: '出错'
@@ -54,6 +54,11 @@ function render() {
     else if (['paused', 'error', 'pending'].includes(t.status)) ops = `<button class="ghost small" data-op="resume" title="${t.status === 'error' ? '重试' : '继续'}">${t.status === 'error' ? '🔄' : '▶'}</button>`;
     // 重新下载：非进行中的任务都可一键清进度重来
     const canRestart = ['paused', 'error', 'completed'].includes(t.status);
+    // BT 没有「线程」概念，它由 aria2 管理 peer 连接，因此展示连接数与做种者数更有意义
+    const isBt = t.kind === 'bt';
+    const isYt = t.kind === 'ytdlp';
+    const threadTitle = isBt ? '已连接的 peer 数量' : (isYt ? '并发分片' : '并行线程');
+    const threadLabel = isBt ? `${t.connections || 0} 连接` : `${t.threads} ${isYt ? '并发' : '线程'}`;
     return `
     <div class="task ${t.status} ${expanded ? 'expanded' : ''}" data-id="${t.id}">
       <div class="row1 clickable" data-op="toggle">
@@ -67,7 +72,8 @@ function render() {
         <span>${t.progress}%</span>
         <span>${fmtBytes(t.downloaded)} / ${t.sizeText || '-'}</span>
         <span>${t.speedText || ''}</span>
-        <span class="thread-info" title="${t.kind === 'ytdlp' ? '并发分片' : '并行线程'}">⚡ ${t.threads} ${t.kind === 'ytdlp' ? '并发' : '线程'}</span>
+        <span class="thread-info" title="${threadTitle}">⚡ ${threadLabel}</span>
+        ${isBt ? `<span class="thread-info" title="当前可见的做种者数量">🌱 ${t.seeders || 0}</span>` : ''}
         ${t.segments ? `<span class="thread-info">▐ ${t.activeThreads}/${t.segments} 段</span>` : ''}
         <span class="grow"></span>
         <div class="ops">
@@ -134,7 +140,12 @@ listEl.addEventListener('click', async e => {
   }
   else if (op === 'open') {
     const t = tasks.find(x => x.id === id);
-    if (t) window.tdm.showItem(t.filePath);
+    if (!t) return;
+    // 主进程会做三级降级（精确命中 → 推断真实文件 → 打开所在目录），
+    // 这里必须把结果告诉用户，否则「什么都没发生」无法与「已成功打开」区分。
+    const r = await window.tdm.showItem(t.filePath);
+    if (r && r.ok === false) toast(r.error || '无法定位文件', true);
+    else if (r && r.note) toast(r.note);
   } else if (op === 'copy-log') {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
@@ -170,6 +181,12 @@ $('#threads-input').addEventListener('keydown', e => { if (e.key === 'Enter') ad
 $('#btn-pause-all').addEventListener('click', () => window.tdm.pauseAll());
 $('#btn-clear-completed').addEventListener('click', () => window.tdm.clearCompleted());
 
+// 版本号从主进程取，避免界面写死的版本号和 package.json 漂移
+window.tdm.appVersion?.().then(v => {
+  const el = $('#about-version');
+  if (el && v) el.textContent = 'v' + v;
+}).catch(() => {});
+
 // 链接复制 / 导出
 $('#btn-copy-links').addEventListener('click', async () => {
   if (tasks.length === 0) return toast('暂无任务', true);
@@ -200,6 +217,8 @@ $('#btn-settings').addEventListener('click', async () => {
   $('#cfg-threads').value = cfg.maxThreads;
   $('#cfg-concurrent').value = cfg.maxConcurrent;
   $('#cfg-clipboard').checked = cfg.clipboardMonitor !== false;
+  $('#cfg-bt-seed').value = cfg.btSeedTime ?? 0;
+  $('#cfg-bt-trackers').value = cfg.btTrackers || '';
   modal.classList.remove('hidden');
 });
 $('#btn-settings-cancel').addEventListener('click', () => modal.classList.add('hidden'));
@@ -212,7 +231,9 @@ $('#btn-settings-save').addEventListener('click', async () => {
     downloadDir: $('#cfg-dir').value,
     maxThreads: Math.min(64, Math.max(1, Number($('#cfg-threads').value) || 32)),
     maxConcurrent: Math.min(10, Math.max(1, Number($('#cfg-concurrent').value) || 3)),
-    clipboardMonitor: $('#cfg-clipboard').checked
+    clipboardMonitor: $('#cfg-clipboard').checked,
+    btSeedTime: Math.max(0, Number($('#cfg-bt-seed').value) || 0),
+    btTrackers: $('#cfg-bt-trackers').value.trim()
   });
   modal.classList.add('hidden');
   toast('设置已保存');

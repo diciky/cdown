@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('tdm', {
   sniffUrl: url => ipcRenderer.invoke('sniff:url', url),
   exportLinks: () => ipcRenderer.invoke('tasks:exportLinks'),
   getConfig: () => ipcRenderer.invoke('config:get'),
+  appVersion: () => ipcRenderer.invoke('app:version'),
   setConfig: patch => ipcRenderer.invoke('config:set', patch),
   chooseDir: () => ipcRenderer.invoke('dialog:chooseDir'),
   showItem: p => ipcRenderer.invoke('shell:showItem', p),

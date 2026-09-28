@@ -98,6 +98,8 @@ class HttpDownloader extends EventEmitter {
     this.status = 'idle'; // idle|probing|downloading|paused|completed|error
     this.error = null;
     this.size = opts.size || -1;
+    // 是否支持 Range 分段。null = 尚未探测；调用方（Queue）已探测过则会传入明确布尔值
+    this.acceptRanges = opts.acceptRanges === undefined ? null : opts.acceptRanges;
     this.etag = opts.etag || null;
     this.lastModified = opts.lastModified || null;
     this.segments = []; // {index,start,end,done}
@@ -196,7 +198,8 @@ class HttpDownloader extends EventEmitter {
     this._stopped = false; // 必须先复位，否则探测重试循环会因该标记直接放弃
     this._emitProgress();
     try {
-      if (this.size === -1 || this.segments.length === 0) {
+      // 调用方已探测出 size + Range 支持情况时跳过重复探测（省一次往返）
+      if (this.size === -1 || this.acceptRanges === null || this.segments.length === 0) {
         let probe;
         for (let i = 1; ; i++) {
           try { probe = await resolveTarget(this.finalUrl || this.url, this.headers); break; }
@@ -209,13 +212,13 @@ class HttpDownloader extends EventEmitter {
         this.finalUrl = probe.url;
         this.headers = { ...this.headers, ...(probe.headers && !probe.headers['user-agent'] ? {} : {}) };
         this.size = probe.size;
+        this.acceptRanges = probe.acceptRanges === true;
         this.etag = probe.etag;
         this.lastModified = probe.lastModified;
         const target = { 'user-agent': UA, ...this.headers };
         this.headers = target;
-        const resumed = await this._tryResume();
-        if (!resumed) this._planSegments();
       }
+      if (this.segments.length === 0 && !(await this._tryResume())) this._planSegments();
       await fsp.mkdir(path.dirname(this.filePath), { recursive: true });
       if (!this.fd) {
         const flags = fs.existsSync(this.tmpPath) ? 'r+' : 'w';
@@ -236,14 +239,27 @@ class HttpDownloader extends EventEmitter {
     }
   }
 
+  // 分段是否仍未下完。
+  // end === -1 表示长度未知（一直读到 EOF），只能由流的自然结束（seg.eof）来判定完成，
+  // 否则 while 条件永远为真会无限重发请求。
+  _segNotDone(seg) {
+    if (seg.eof) return false;
+    if (seg.end === -1) return true;
+    return seg.done < seg.end - seg.start + 1;
+  }
+
   _planSegments() {
     this.segments = [];
     this.downloaded = 0;
     const { segmentMinSize } = require('./config').load();
-    const canRange = this.acceptRanges !== false && this.size > segmentMinSize;
+    // 只有服务端明确支持 Range 才分段。
+    // 原来判断用的是 this.acceptRanges（从未赋值，恒为 undefined，!== false 恒真），
+    // 于是不支持 Range 的服务器也被切成多段：每段都拿回完整文件并写到各自的偏移上，文件彻底损坏。
+    const canRange = this.acceptRanges === true && this.size > segmentMinSize;
     const n = canRange ? Math.min(this.threads, Math.ceil(this.size / segmentMinSize)) : 1;
     if (!canRange || this.size <= 0) {
-      this.segments = [{ index: 0, start: 0, end: this.size > 0 ? this.size - 1 : -1, done: 0 }];
+      // 单流顺序写入，end = -1 表示读到 EOF 为止
+      this.segments = [{ index: 0, start: 0, end: -1, done: 0 }];
       return;
     }
     const chunk = Math.floor(this.size / n);
@@ -257,7 +273,7 @@ class HttpDownloader extends EventEmitter {
   async _runWorkers() {
     if (this._finished) return;
     // 排除已有活动线程的分段，避免对同一分段重复派发导致竞态
-    const pending = this.segments.filter(s => !this.workers.has(s.index) && s.done <= s.end - s.start);
+    const pending = this.segments.filter(s => !this.workers.has(s.index) && this._segNotDone(s));
     const idle = this.threads - this.workers.size;
     const toRun = pending.slice(0, Math.max(0, idle));
     toRun.forEach(seg => this._worker(seg));
@@ -284,7 +300,7 @@ class HttpDownloader extends EventEmitter {
     this.workers.set(seg.index, ac);
     let attempts = 0; // 连续失败次数，成功推进后归零
     try {
-      while (seg.done <= seg.end - seg.start && !this._stopped) {
+      while (this._segNotDone(seg) && !this._stopped) {
         try {
           const from = seg.start + seg.done;
           const range = `bytes=${from}-${seg.end === -1 ? '' : seg.end}`;
@@ -304,6 +320,8 @@ class HttpDownloader extends EventEmitter {
             this.downloaded += buf.length;
             this._emitProgress();
           }
+          // 长度未知的单流：流正常读到 EOF 即该段完成（不能靠区间长度判断，否则会无限重发）
+          if (!this._stopped && seg.end === -1) seg.eof = true;
           attempts = 0; // 本轮请求成功，重置重试计数
         } catch (e) {
           if (this._stopped || e.name === 'AbortError') break;
@@ -324,7 +342,7 @@ class HttpDownloader extends EventEmitter {
       if (!this._stopped) {
         if (this.status === 'error') { clearInterval(this._persistTimer); this._persist(); }
         else {
-          const hasPending = this.segments.some(s => s.done <= s.end - s.start);
+          const hasPending = this.segments.some(s => this._segNotDone(s));
           // 只有所有工作线程都退出且无未完成分段时才能收尾（避免提前关闭 fd 的竞态）
           if (!hasPending && this.workers.size === 0) this._finish();
           else this._runWorkers(); // 慢段自动补线程
@@ -340,15 +358,23 @@ class HttpDownloader extends EventEmitter {
     try {
       await this.fd?.close();
       this.fd = null;
-      await fsp.rename(this.tmpPath, this.filePath);
+      try {
+        await fsp.rename(this.tmpPath, this.filePath);
+      } catch (e) {
+        // 数据其实已完整落盘在 .part 里，只是最后改名失败（权限 / 文件被占用 / 跨卷等）。
+        // 不能笼统报「合并失败」，否则用户会以为要重新下载，白白浪费已完成的流量。
+        throw new Error(`保存文件失败: ${e.message}。数据已完整下载在 ${path.basename(this.tmpPath)}，排除占用或权限问题后重试即可`);
+      }
       await fsp.unlink(this.metaPath).catch(() => {});
+      // 长度未知的流：以实际落盘字节数作为最终大小，让界面能显示 100%
+      if (!(this.size > 0) && this.downloaded > 0) this.size = this.downloaded;
       this.downloaded = this.size > 0 ? this.size : this.downloaded;
       this.status = 'completed';
       this.speed = 0;
       this.emit('done', this.snapshot());
     } catch (e) {
       this.status = 'error';
-      this.error = `合并失败: ${e.message}`;
+      this.error = e.message;
       this.emit('error', this.snapshot());
     }
   }

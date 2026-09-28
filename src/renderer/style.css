@@ -77,6 +77,7 @@ button.icon { padding: 6px 9px; }
 .kind-http { background: #e8edfb; color: var(--primary); }
 .kind-hls { background: #fef3e2; color: var(--amber); }
 .kind-ytdlp { background: #fce9e9; color: var(--red); }
+.kind-bt { background: #e6f5ee; color: #12805c; }
 .task .src {
   font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600;
   background: #eef1f4; color: #475467; max-width: 130px;

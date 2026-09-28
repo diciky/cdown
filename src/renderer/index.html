@@ -30,7 +30,7 @@
   </header>
 
   <section class="addbar">
-    <input id="url-input" type="text" placeholder="粘贴下载链接：HTTP(S) 直链 / m3u8 / B站·YouTube·X 等视频页 / HuggingFace 模型文件…  回车添加" />
+    <input id="url-input" type="text" placeholder="粘贴下载链接：HTTP(S) 直链 / m3u8 / 磁力链 magnet: / .torrent / B站·YouTube·X 等视频页 / HuggingFace 模型文件…  回车添加" />
     <input id="threads-input" type="number" min="1" max="64" value="32" title="线程数 (1-64)"
            list="thread-presets" style="width:110px" />
     <datalist id="thread-presets">
@@ -102,7 +102,11 @@
       <label>同时下载任务数</label>
       <input id="cfg-concurrent" type="number" min="1" max="10" />
       <label class="check-row"><input id="cfg-clipboard" type="checkbox" /> 自动识别剪贴板链接并询问添加</label>
-      <div class="about">CDown v0.2.3 · 开发者 <b>diciky</b> · <a href="mailto:diciky.zl@gmail.com" style="color:var(--primary)">diciky.zl@gmail.com</a> · MIT License</div>
+      <label>BT 下载完成后继续做种（分钟，0 = 不做种）</label>
+      <input id="cfg-bt-seed" type="number" min="0" max="10080" value="0" />
+      <label>额外 Tracker（逗号分隔，留空则只用种子自带的）</label>
+      <input id="cfg-bt-trackers" type="text" placeholder="udp://tracker.opentrackr.org:1337/announce, …" />
+      <div class="about">CDown <span id="about-version">v-</span> · 开发者 <b>diciky</b> · <a href="mailto:diciky.zl@gmail.com" style="color:var(--primary)">diciky.zl@gmail.com</a> · MIT License</div>
       <div class="modal-actions">
         <button id="btn-settings-cancel" class="ghost">取消</button>
         <button id="btn-settings-save" class="primary">保存</button>
