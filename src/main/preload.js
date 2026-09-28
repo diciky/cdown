@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('tdm', {
   clearCompleted: () => ipcRenderer.invoke('tasks:clearCompleted'),
   restart: id => ipcRenderer.invoke('tasks:restart', id),
   sniffUrl: url => ipcRenderer.invoke('sniff:url', url),
+  douyinExtract: url => ipcRenderer.invoke('douyin:extract', url),
   exportLinks: () => ipcRenderer.invoke('tasks:exportLinks'),
   getConfig: () => ipcRenderer.invoke('config:get'),
   appVersion: () => ipcRenderer.invoke('app:version'),

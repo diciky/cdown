@@ -8,6 +8,8 @@ const fs = require('fs');
 const SUITES = [
   ['引擎回归（HTTP Range / 无 Content-Length / HLS 失败处理）', 'mac-regression.js'],
   ['打开所在文件夹与文件命名', 'reveal-naming-test.js'],
+  ['抖音解析与下载（含 Referer 与清晰度档位）', 'douyin-test.js'],
+  ['界面渲染冒烟（抖音弹窗 / 标签 / 计算样式）', 'ui-shot-run.js'],
   ['BT 本地链路（tracker + 做种 + 下载）', 'bt-local-test.js'],
   ['BT 全链路集成（经 queue + aria2c）', 'bt-queue-test.js']
 ];

@@ -45,17 +45,30 @@ function getSource(url) {
 }
 
 function classify(url) {
-  const u = String(url || '').trim().toLowerCase();
+  const raw = String(url || '').trim();
   // BitTorrent：磁力链 / .torrent 种子文件
-  if (u.startsWith('magnet:?')) return 'bt';
+  if (/^magnet:\?/i.test(raw)) return 'bt';
+  // 抖音等 App 的「分享」按钮复制出来的是「文案 + 链接」一整段（中间有空格），
+  // 必须先把链接抠出来再判断 —— 否则整段文本会被当成普通 HTTP 直链，
+  // 结果是把一段分享文案下载成一个 .bin 文件。
+  const m = raw.match(/https?:\/\/[^\s，,。；;、]+/);
+  const u = (m ? m[0] : raw).toLowerCase();
   if (/\.torrent(?:[?#]|$)/.test(u)) return 'bt';
+  // 抖音：单独一条链路。它不能交给 yt-dlp（其 DouyinIE 明确不生成签名 cookie，
+  // 实测喂 cookie 也仍 403），必须先经应用内的浏览器会话换到无水印直链。
+  if (/(?:^|\.)(?:douyin|iesdouyin)\.com/.test(hostOf(u))) return 'douyin';
   // HLS：路径以 .m3u8 结尾，或由查询参数指定了 m3u8 格式。
   // 旧实现只判断 includes('m3u8?')，因此 `?format=m3u8&token=…` 这类
   // 查询参数形式的播放列表会被误判成普通 HTTP 直链，从而下载到一份文本清单。
   if (/\.m3u8(?:[?#]|$)/.test(u) || /[?&](?:format|fmt|type|ext)=m3u8\b/.test(u)) return 'hls';
-  const VIDEO_SITES = ['youtube.com', 'youtu.be', 'bilibili.com', 'b23.tv', 'x.com', 'twitter.com', 'tiktok.com', 'douyin.com', 'reddit.com', 'ixigua.com', 'youku.com', 'v.qq.com', 'iqiyi.com'];
+  const VIDEO_SITES = ['youtube.com', 'youtu.be', 'bilibili.com', 'b23.tv', 'x.com', 'twitter.com', 'tiktok.com', 'reddit.com', 'ixigua.com', 'youku.com', 'v.qq.com', 'iqiyi.com'];
   if (VIDEO_SITES.some(s => u.includes(s))) return 'ytdlp';
   return 'http';
+}
+
+function hostOf(u) {
+  const m = String(u).match(/^https?:\/\/([^/?#]+)/);
+  return m ? m[1].toLowerCase() : '';
 }
 
 // 文件名净化。
@@ -101,13 +114,23 @@ class Queue extends EventEmitter {
     this.tasks = new Map(); // id -> task record {id,url,type,status,...,worker}
     this._idCounter = 1;
     this._loaded = false;
+    // 抖音解析器由主进程注入（它依赖 Electron 的浏览器会话）。
+    // 不在这里直接 require：queue.js 也被 CLI 与单测使用，那些环境没有 electron。
+    this._douyinResolver = null;
   }
+
+  setDouyinResolver(fn) { this._douyinResolver = fn; }
 
   async _persist() {
     const arr = [...this.tasks.values()].map(t => ({
       id: t.id, url: t.url, type: t.type, status: t.status,
       filePath: t.filePath, filename: t.filename, threads: t.threads,
-      size: t.size, downloaded: t.downloaded, error: t.error, createdAt: t.createdAt, format: t.format || null
+      size: t.size, downloaded: t.downloaded, error: t.error, createdAt: t.createdAt,
+      format: t.format || null,
+      // 抖音任务需要额外持久化：直链会过期，重启后要重新解析；
+      // quality 也必须记住，否则恢复时会退回全局默认清晰度、换到另一档流
+      kind: t.kind || null, source: t.source || null, meta: t.meta || null,
+      quality: t.quality || null
     }));
     await fsp.mkdir(path.dirname(TASKS_FILE), { recursive: true });
     await fsp.writeFile(TASKS_FILE, JSON.stringify(arr, null, 2)).catch(() => {});
@@ -121,7 +144,9 @@ class Queue extends EventEmitter {
         speed: 0, speedText: '-', progress: t.size > 0 ? Number(((t.downloaded / t.size) * 100).toFixed(1)) : 0,
         threads: t.threads, activeThreads: 0, segments: 0, segDetail: [], logs: [], error: t.error
       };
-      return { ...s, source: t.source || getSource(t.url) };
+      // kind 以任务记录为准：下载器的 snapshot 只会报自己的实现类型（http），
+      // 而界面上要区分出「抖音」这种走同一条 HTTP 引擎但来源不同的任务。
+      return { ...s, kind: t.kind || s.kind, source: t.source || getSource(t.url), meta: t.meta || null };
     });
   }
 
@@ -133,7 +158,28 @@ class Queue extends EventEmitter {
     const id = this._idCounter++;
     let filename = opts.filename;
     let threads = opts.threads || (type === 'hls' ? 16 : url.includes('huggingface') || url.includes('hf-mirror') ? cfg.hfThreads : cfg.maxThreads);
-    const source = getSource(url);
+    let source = getSource(url);
+    let headers = opts.headers || null;
+    let directUrl = null;
+    let kind = opts.kind || null;
+    let meta = opts.meta || null;
+    // 抖音：用户在界面上选的清晰度档位标签，要跟着任务走（恢复时复用同一档）
+    let quality = null;
+
+    // 抖音：先经应用内的浏览器会话换到无水印直链，再当作普通 HTTP 任务下载。
+    // 解析器由主进程注入（依赖 Electron），CLI/单测环境没注册就会走下面的报错分支。
+    if (type === 'douyin') {
+      if (!this._douyinResolver) throw new Error('抖音下载需要在 CDown 应用内使用（解析器未注册）');
+      quality = opts.quality || null;
+      const r = await this._douyinResolver(url, { quality });
+      directUrl = r.url;
+      headers = r.headers || null;
+      filename = filename || r.filename;
+      kind = 'douyin';
+      source = '抖音';
+      meta = r.meta || null;
+      threads = opts.threads || cfg.maxThreads;
+    }
 
     // BT：真实文件名要等拿到种子元数据才知道，先给个占位名
     if (type === 'bt' && !filename) filename = guessTorrentName(url);
@@ -146,10 +192,16 @@ class Queue extends EventEmitter {
         throw e;
       }
     }
-    filename = filename || filenameFromUrl(url, type);
+    // 统一净化：调用方传入的 filename（如抖音的「作者 - 描述.mp4」）可能带
+    // `/` 等路径字符，或超过文件系统 255 字节上限，必须过一遍 safeName 再拼路径。
+    filename = safeName(filename || filenameFromUrl(url, type));
     const filePath = path.join(opts.dir || cfg.downloadDir, filename);
 
-    const task = { id, url, type, source, status: 'pending', filePath, filename, threads, size: -1, downloaded: 0, error: null, createdAt: Date.now(), worker: null, format: opts.format || null };
+    const task = {
+      id, url, type, source, status: 'pending', filePath, filename, threads,
+      size: -1, downloaded: 0, error: null, createdAt: Date.now(), worker: null,
+      format: opts.format || null, headers, directUrl, kind, meta, quality
+    };
     this.tasks.set(id, task);
     await this._persist();
     this.emit('progress');
@@ -188,6 +240,28 @@ class Queue extends EventEmitter {
         });
       } else if (task.type === 'hls') {
         worker = new HlsDownloader({ id: task.id, url: task.url, filePath: task.filePath, threads: task.threads });
+      } else if (task.type === 'douyin') {
+        // 抖音直链带时效签名，可能已过期 —— 每次启动前重新解析一次，
+        // 否则「暂停一天后继续」会拿到 403。多花一次接口调用，换掉一整个失败场景。
+        // 清晰度用任务自己记的（task.quality），没有才退回全局默认：
+        // 用默认值会让恢复中的任务换到另一档流，和已下载的分段混在一起。
+        if (this._douyinResolver) {
+          const r = await this._douyinResolver(task.url, { quality: task.quality || cfg.douyinQuality });
+          task.directUrl = r.url;
+          task.headers = r.headers || null;
+          if (r.meta) task.meta = { ...(task.meta || {}), ...r.meta };
+        }
+        if (!task.directUrl) throw new Error('抖音直链解析失败，请重新添加任务');
+        const pre = await resolveTarget(task.directUrl, task.headers || {});
+        worker = new HttpDownloader({
+          id: task.id, url: task.directUrl, finalUrl: pre.url, headers: task.headers || {},
+          filePath: task.filePath, threads: task.threads,
+          size: pre.size, etag: pre.etag, lastModified: pre.lastModified,
+          acceptRanges: pre.acceptRanges,
+          // 直链每次解析都不一样，靠 url 比对断点永远失效；用任务级稳定标识
+          resumeKey: `douyin:${task.url}:${task.quality || 'best'}`
+        });
+        task.size = pre.size;
       } else if (task.type === 'ytdlp') {
         worker = new ytdlp.YtDlpDownloader({ id: task.id, url: task.url, filePath: task.filePath, title: task.filename, format: task.format });
       } else {

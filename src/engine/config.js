@@ -29,6 +29,7 @@ const DEFAULTS = {
   btDht: true,           // 是否启用 DHT / PEX（关闭后只能依赖 tracker 与种子自带 peer）
   btTrackers: '',        // 额外 tracker 列表（逗号分隔），留空则只用种子自带 tracker
   hfThreads: 16,         // HuggingFace 大文件默认线程数
+  douyinQuality: 'best', // 抖音默认清晰度：best | 1080 | 720 | 540 | lowest
   clipboardMonitor: true, // 自动识别剪贴板链接并询问添加
   serverPort: 8780       // 本地 API 端口（浏览器扩展通信用，仅监听 127.0.0.1）
 };

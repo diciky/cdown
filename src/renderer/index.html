@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <!-- img-src 放开 https：抖音解析弹窗要显示视频封面缩略图（同一条视频，不引入额外来源） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:" />
   <title>CDown - 极速多线程下载器</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -30,7 +31,7 @@
   </header>
 
   <section class="addbar">
-    <input id="url-input" type="text" placeholder="粘贴下载链接：HTTP(S) 直链 / m3u8 / 磁力链 magnet: / .torrent / B站·YouTube·X 等视频页 / HuggingFace 模型文件…  回车添加" />
+    <input id="url-input" type="text" placeholder="粘贴下载链接：HTTP(S) 直链 / m3u8 / 磁力链 magnet: / .torrent / 抖音分享链接 / B站·YouTube·X 等视频页 / HuggingFace 模型文件…  回车添加" />
     <input id="threads-input" type="number" min="1" max="64" value="32" title="线程数 (1-64)"
            list="thread-presets" style="width:110px" />
     <datalist id="thread-presets">
@@ -87,6 +88,27 @@
       </div>
       <div class="modal-actions">
         <button id="btn-sniff-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 抖音解析弹窗 -->
+  <div id="douyin-modal" class="modal hidden">
+    <div class="modal-body dy-body">
+      <h3>🎵 抖音视频 - 选择清晰度</h3>
+      <div class="dy-head">
+        <img id="dy-cover" class="dy-cover" alt="" referrerpolicy="no-referrer" />
+        <div class="dy-meta">
+          <div id="dy-author" class="dy-author"></div>
+          <div id="dy-desc" class="dy-desc"></div>
+          <div id="dy-stats" class="dy-stats"></div>
+        </div>
+      </div>
+      <div id="dy-status" class="dim"></div>
+      <div id="dy-variants" class="dy-variants"></div>
+      <div class="modal-actions">
+        <button id="btn-dy-cancel" class="ghost">取消</button>
+        <button id="btn-dy-add" class="primary" disabled>添加下载</button>
       </div>
     </div>
   </div>

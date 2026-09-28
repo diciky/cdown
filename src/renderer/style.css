@@ -78,6 +78,7 @@ button.icon { padding: 6px 9px; }
 .kind-hls { background: #fef3e2; color: var(--amber); }
 .kind-ytdlp { background: #fce9e9; color: var(--red); }
 .kind-bt { background: #e6f5ee; color: #12805c; }
+.kind-douyin { background: #ffe9f2; color: #c2185b; }
 .task .src {
   font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600;
   background: #eef1f4; color: #475467; max-width: 130px;
@@ -194,6 +195,47 @@ button.icon { padding: 6px 9px; }
 .sniff-empty { padding: 24px; text-align: center; color: var(--text2); font-size: 13px; }
 .sniff-ops { margin-top: 10px; align-items: center; gap: 8px; }
 .sniff-ops input[type="number"] { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; width: 78px; }
+
+/* 抖音解析弹窗 */
+.dy-body { width: 620px; max-width: 92vw; }
+.dy-body .dim { font-size: 12px; color: var(--text2); margin-top: 10px; }
+.dy-head { display: flex; gap: 12px; margin-top: 10px; }
+.dy-cover {
+  width: 84px; height: 112px; object-fit: cover; border-radius: 8px;
+  background: #f0f2f5; flex-shrink: 0;
+}
+.dy-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.dy-author { font-size: 13px; font-weight: 600; }
+.dy-desc {
+  font-size: 12px; color: var(--text2); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dy-stats { font-size: 11px; color: var(--text2); }
+.dy-variants { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+/* 选择器要带上 .dy-body：.modal-body label 的 (0,1,1) 优先级高于单类选择器，
+   不加深一层的话 font-size / color / margin-top 会被它覆盖掉 */
+.dy-body .dy-variant {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-top: 0;
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  font-size: 13px; color: var(--text);
+}
+.dy-body .dy-variant:hover { background: #f0f4fb; }
+.dy-body .dy-variant:has(input:checked) { border-color: var(--primary); background: #eef3ff; }
+/* .modal-body input 有 width:100%（为文本框准备），单选钮会被拉成整行宽、把后面的
+   文字全推到右边。这里必须把宽度收回来并阻止收缩。 */
+.dy-body .dy-variant input[type="radio"] {
+  width: auto; flex: 0 0 auto; margin: 0; padding: 0; accent-color: var(--primary);
+}
+.dy-q-label { font-weight: 600; min-width: 96px; color: var(--text); white-space: nowrap; }
+.dy-q-dim { font-size: 12px; color: var(--text2); white-space: nowrap; }
+.dy-q-size { margin-left: auto; font-size: 12px; color: var(--text2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dy-card {
+  display: flex; flex-direction: column; gap: 3px; padding: 10px 12px;
+  background: #f7f8fa; border-radius: 8px; font-size: 12px;
+}
+.dy-card-row { display: flex; gap: 8px; }
+.dy-card-row b { color: var(--text2); font-weight: 600; flex-shrink: 0; min-width: 48px; }
+.dy-card-row span { word-break: break-word; }
 
 /* Toast */
 .toast {

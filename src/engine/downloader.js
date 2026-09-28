@@ -102,6 +102,10 @@ class HttpDownloader extends EventEmitter {
     this.acceptRanges = opts.acceptRanges === undefined ? null : opts.acceptRanges;
     this.etag = opts.etag || null;
     this.lastModified = opts.lastModified || null;
+    // 稳定资源标识。抖音这类「直链每次解析都带新的签名 token」的资源，
+    // url 每次都不一样，靠 url 比对会让断点续传永远失效（每次都从 0 重来）。
+    // 传入 resumeKey（如 douyin:<aweme_id>:<清晰度>）后改用 key + size 判定同一资源。
+    this.resumeKey = opts.resumeKey || null;
     this.segments = []; // {index,start,end,done}
     this.workers = new Map(); // index -> AbortController
     this.downloaded = 0;
@@ -168,6 +172,7 @@ class HttpDownloader extends EventEmitter {
       size: this.size,
       etag: this.etag,
       lastModified: this.lastModified,
+      resumeKey: this.resumeKey,
       segments: this.segments.map(s => ({ start: s.start, end: s.end, done: s.done }))
     };
     await fsp.writeFile(this.metaPath, JSON.stringify(meta), 'utf8').catch(() => {});
@@ -177,10 +182,11 @@ class HttpDownloader extends EventEmitter {
   async _tryResume() {
     try {
       const meta = JSON.parse(await fsp.readFile(this.metaPath, 'utf8'));
-      const sameResource =
-        meta.url === this.url &&
-        meta.size === this.size &&
-        meta.etag === this.etag;
+      // 有 resumeKey 时按 key + size 判定（url 含时效签名，每次解析都不同，不能参与比对）；
+      // 没有 resumeKey 的普通直链仍按 url + size + etag 三重校验，保持原有严格性。
+      const sameResource = this.resumeKey
+        ? (meta.resumeKey === this.resumeKey && meta.size === this.size)
+        : (meta.url === this.url && meta.size === this.size && meta.etag === this.etag);
       if (!sameResource || !fs.existsSync(this.tmpPath)) return false;
       this.segments = meta.segments.map((s, i) => ({ index: i, ...s }));
       this.downloaded = this.segments.reduce((a, s) => a + s.done, 0);

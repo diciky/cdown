@@ -23,10 +23,21 @@ if (app.isPackaged && !process.env.TDM_DATA_DIR) {
 const { Queue } = require('../engine/queue');
 const config = require('../engine/config');
 const sniffer = require('../engine/sniffer');
+const douyin = require('../engine/douyin');
 const { resolveRevealTarget } = require('./reveal');
 
 let win = null;
 const queue = new Queue();
+
+// ---------- 抖音解析器注入 ----------
+// 抖音不能交给 yt-dlp：它的 DouyinIE 源码里写着
+// `TODO: Run verification challenge code to generate signature cookies` —— 它自己不生成签名，
+// 只负责把外部 cookie 拿来用；而实测把浏览器导出的 cookie 喂给它仍然 403。
+// 所以这里自己走「隐藏窗口跑 JS 挑战 → 换 s_v_web_id → 调 detail 接口 → 取无水印直链」。
+//
+// 解析逻辑在 engine/douyin.js（可被端到端探针复用），这里只做队列的接口适配；
+// 队列本身不依赖 Electron，因此 queue.js 依然能在 CLI 与单测环境里被 require。
+queue.setDouyinResolver((url, opts = {}) => douyin.resolve(url, opts.quality));
 
 // 统一的安全发送：窗口可能已被关闭（macOS 关窗后应用仍在运行）
 function send(channel, payload) {
@@ -54,7 +65,14 @@ function createWindow() {
   if (!IS_MAC) win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => {
+    win = null;
+    // 抖音解析用的隐藏窗口也要一起收掉。否则它会让 BrowserWindow.getAllWindows()
+    // 永远非空 —— 非 macOS 上 window-all-closed 不再触发（关窗后应用退不掉），
+    // macOS 上 activate 也不会重建主窗口（点 Dock 图标没反应）。
+    // 会话本身存在 persist:cdown-douyin 分区里，下次解析仍能复用已拿到的 s_v_web_id。
+    douyin.dispose();
+  });
 }
 
 // macOS 需要显式的应用菜单，否则 Cmd+Q / Cmd+C / Cmd+V / Cmd+W 等标准行为缺失
@@ -97,7 +115,7 @@ queue.on('error', s => { push(); send('task-error', s); });
 queue.on('add-failed', s => { send('add-failed', s); });
 
 ipcMain.handle('tasks:list', async () => { await queue.loadPersisted(); return queue.snapshotAll(); });
-ipcMain.handle('tasks:add', async (_e, { url, threads, filename, format, formatExt }) => { const id = await queue.add(url, { threads, filename, format, formatExt }); push(); return id; });
+ipcMain.handle('tasks:add', async (_e, { url, threads, filename, format, formatExt, quality }) => { const id = await queue.add(url, { threads, filename, format, formatExt, quality }); push(); return id; });
 ipcMain.handle('tasks:pause', async (_e, id) => { await queue.pause(id); push(); });
 ipcMain.handle('tasks:resume', async (_e, id) => { await queue.resume(id); push(); });
 ipcMain.handle('tasks:remove', async (_e, id) => { await queue.remove(id); push(); });
@@ -122,6 +140,28 @@ ipcMain.handle('tasks:exportLinks', async () => {
 ipcMain.handle('config:get', () => config.load());
 // 版本号由主进程提供，避免界面里写死的版本号和 package.json 长期漂移
 ipcMain.handle('app:version', () => app.getVersion());
+
+// 抖音链接预解析：给界面列出清晰度档位，让用户在添加前就能选。
+// 只读操作，不产生任务；失败时把错误原文回传，界面直接 toast。
+ipcMain.handle('douyin:extract', async (_e, url) => {
+  try {
+    const r = await douyin.extract(url);
+    return {
+      ok: true,
+      id: r.id,
+      author: r.author,
+      desc: r.desc,
+      durationMs: r.durationMs,
+      music: r.music,
+      cover: r.cover,
+      isImages: r.isImages,
+      imageCount: r.images.length,
+      variants: r.variants.map(v => ({ label: v.label, width: v.width, height: v.height, size: v.size }))
+    };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 ipcMain.handle('config:set', (_e, patch) => {
   const cfg = config.save(patch);
   if ('clipboardMonitor' in patch) startClipboardMonitor();
@@ -155,15 +195,8 @@ ipcMain.handle('clipboard:copyText', (_e, text) => clipboard.writeText(String(te
 // ---------- 剪贴板监听 ----------
 let lastClipboard = '';
 let clipboardTimer = null;
-function isDownloadableUrl(text) {
-  // 磁力链里不能有空白（含换行），但长度通常远超普通 URL，所以先单独放行再限长
-  if (/^magnet:\?/i.test(text.trim())) return text.trim().length <= 4000;
-  if (!text || text.length > 2000 || /\s/.test(text.trim())) return false;
-  try {
-    const u = new URL(text.trim());
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch { return false; }
-}
+// 判定逻辑抽在 ./clipboard-url.js（纯函数、可单测），这里只用
+const { isDownloadableUrl } = require('./clipboard-url');
 function startClipboardMonitor() {
   clearInterval(clipboardTimer);
   if (!config.load().clipboardMonitor) return;
@@ -237,7 +270,9 @@ app.whenReady().then(async () => {
   createWindow();
   startClipboardMonitor();
   startApiServer();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  // 用主窗口引用判断，而不是 BrowserWindow.getAllWindows().length：
+  // 抖音解析的隐藏窗口会让后者恒为非零，导致点 Dock 图标重建不出窗口。
+  app.on('activate', () => { if (!isWinAlive()) createWindow(); });
 });
 
 // macOS 惯例：关闭窗口不退出应用，下载任务继续后台跑，点 Dock 图标可重新唤起窗口。
@@ -248,5 +283,5 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-// 真正退出前统一暂停，保证断点元数据落盘
-app.on('before-quit', () => { queue.pauseAll(); });
+// 真正退出前统一暂停，保证断点元数据落盘；同时关掉抖音那个隐藏会话窗口
+app.on('before-quit', () => { queue.pauseAll(); douyin.dispose(); });

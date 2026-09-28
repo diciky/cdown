@@ -1,6 +1,6 @@
 {
   "name": "cdown",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "CDown - 极速多线程下载器 (Electron)",
   "main": "src/main/main.js",
   "author": "diciky <diciky.zl@gmail.com>",
@@ -16,7 +16,11 @@
     "dist:linux": "electron-builder --linux",
     "bundle:aria2": "node scripts/bundle-aria2.js",
     "test": "node scripts/test-all.js",
-    "test:bt": "node scripts/bt-queue-test.js"
+    "test:bt": "node scripts/bt-queue-test.js",
+    "test:douyin": "node scripts/douyin-test.js",
+    "test:douyin:e2e": "node scripts/douyin-e2e-run.js",
+    "test:douyin:pkg": "node scripts/packaged-douyin-e2e.js",
+    "test:ui": "node scripts/ui-shot-run.js"
   },
   "build": {
     "appId": "com.cdown.app",
