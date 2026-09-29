@@ -1,15 +1,26 @@
 {
   "name": "cdown",
-  "version": "0.2.3",
+  "version": "0.4.1",
   "description": "CDown - 极速多线程下载器 (Electron)",
   "main": "src/main/main.js",
   "author": "diciky <diciky.zl@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "start": "electron . --no-sandbox --disable-gpu",
+    "start": "electron . --no-sandbox",
+    "start:lowgpu": "electron . --no-sandbox --disable-gpu",
     "cli": "node scripts/engine-cli.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux",
+    "bundle:aria2": "node scripts/bundle-aria2.js",
+    "test": "node scripts/test-all.js",
+    "test:bt": "node scripts/bt-queue-test.js",
+    "test:douyin": "node scripts/douyin-test.js",
+    "test:douyin:e2e": "node scripts/douyin-e2e-run.js",
+    "test:douyin:pkg": "node scripts/packaged-douyin-e2e.js",
+    "test:ui": "node scripts/ui-shot-run.js"
   },
   "build": {
     "appId": "com.cdown.app",
@@ -36,7 +47,10 @@
         "zip"
       ],
       "icon": "build/icon.png",
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "linux": {
       "target": [

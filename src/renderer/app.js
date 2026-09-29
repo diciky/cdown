@@ -5,7 +5,7 @@ let filter = 'all';
 const $ = sel => document.querySelector(sel);
 const listEl = $('#task-list');
 
-const KIND_LABEL = { http: 'HTTP', hls: 'HLS', ytdlp: '视频' };
+const KIND_LABEL = { http: 'HTTP', hls: 'HLS', ytdlp: '视频', bt: 'BT', douyin: '抖音' };
 const STATUS_LABEL = {
   pending: '排队中', probing: '探测中', downloading: '下载中',
   merging: '合并中', paused: '已暂停', completed: '已完成', error: '出错'
@@ -17,6 +17,16 @@ function fmtBytes(n) {
   let i = 0, v = n;
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
+}
+
+function fmtDuration(ms) {
+  const total = Math.round((Number(ms) || 0) / 1000);
+  if (!total) return '';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = n => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
 function toast(msg, isError = false) {
@@ -54,6 +64,12 @@ function render() {
     else if (['paused', 'error', 'pending'].includes(t.status)) ops = `<button class="ghost small" data-op="resume" title="${t.status === 'error' ? '重试' : '继续'}">${t.status === 'error' ? '🔄' : '▶'}</button>`;
     // 重新下载：非进行中的任务都可一键清进度重来
     const canRestart = ['paused', 'error', 'completed'].includes(t.status);
+    // BT 没有「线程」概念，它由 aria2 管理 peer 连接，因此展示连接数与做种者数更有意义
+    const isBt = t.kind === 'bt';
+    const isYt = t.kind === 'ytdlp';
+    const isDy = t.kind === 'douyin';
+    const threadTitle = isBt ? '已连接的 peer 数量' : (isYt ? '并发分片' : '并行线程');
+    const threadLabel = isBt ? `${t.connections || 0} 连接` : `${t.threads} ${isYt ? '并发' : '线程'}`;
     return `
     <div class="task ${t.status} ${expanded ? 'expanded' : ''}" data-id="${t.id}">
       <div class="row1 clickable" data-op="toggle">
@@ -67,7 +83,9 @@ function render() {
         <span>${t.progress}%</span>
         <span>${fmtBytes(t.downloaded)} / ${t.sizeText || '-'}</span>
         <span>${t.speedText || ''}</span>
-        <span class="thread-info" title="${t.kind === 'ytdlp' ? '并发分片' : '并行线程'}">⚡ ${t.threads} ${t.kind === 'ytdlp' ? '并发' : '线程'}</span>
+        <span class="thread-info" title="${threadTitle}">⚡ ${threadLabel}</span>
+        ${isBt ? `<span class="thread-info" title="当前可见的做种者数量">🌱 ${t.seeders || 0}</span>` : ''}
+        ${isDy && t.meta && t.meta.quality ? `<span class="thread-info" title="抖音清晰度档位">🎬 ${escapeHtml(t.meta.quality)}</span>` : ''}
         ${t.segments ? `<span class="thread-info">▐ ${t.activeThreads}/${t.segments} 段</span>` : ''}
         <span class="grow"></span>
         <div class="ops">
@@ -93,9 +111,17 @@ function renderDetail(t) {
       <div class="seg-legend"><span class="lg done"></span>完成 <span class="lg active"></span>下载中 <span class="lg partial"></span>部分 <span class="lg wait"></span>等待</div>`
     : '';
   const logs = (t.logs && t.logs.length) ? t.logs.join('\n') : '（暂无日志）';
+  const dy = (t.kind === 'douyin' && t.meta) ? `
+      <div class="dy-card">
+        <div class="dy-card-row"><b>作者</b><span>${escapeHtml(t.meta.author || '-')}</span></div>
+        <div class="dy-card-row"><b>文案</b><span>${escapeHtml(t.meta.desc || '-')}</span></div>
+        <div class="dy-card-row"><b>清晰度</b><span>${escapeHtml(t.meta.quality || '-')}${t.meta.width && t.meta.height ? ` · ${t.meta.width}×${t.meta.height}` : ''}${t.meta.variantCount ? `（共 ${t.meta.variantCount} 档）` : ''}</span></div>
+        ${t.meta.durationMs ? `<div class="dy-card-row"><b>时长</b><span>${fmtDuration(t.meta.durationMs)}</span></div>` : ''}
+      </div>` : '';
   return `
     <div class="detail">
       ${t.error ? `<div class="err-msg">${escapeHtml(t.error)}</div>` : ''}
+      ${dy}
       ${segGrid}
       <div class="log-box">${escapeHtml(logs)}</div>
       <div class="detail-actions">
@@ -134,7 +160,12 @@ listEl.addEventListener('click', async e => {
   }
   else if (op === 'open') {
     const t = tasks.find(x => x.id === id);
-    if (t) window.tdm.showItem(t.filePath);
+    if (!t) return;
+    // 主进程会做三级降级（精确命中 → 推断真实文件 → 打开所在目录），
+    // 这里必须把结果告诉用户，否则「什么都没发生」无法与「已成功打开」区分。
+    const r = await window.tdm.showItem(t.filePath);
+    if (r && r.ok === false) toast(r.error || '无法定位文件', true);
+    else if (r && r.note) toast(r.note);
   } else if (op === 'copy-log') {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
@@ -151,13 +182,16 @@ listEl.addEventListener('click', async e => {
   }
 });
 
-async function addTask(url, threads) {
+async function addTask(url, threads, opts = {}) {
   const input = $('#url-input');
   const finalUrl = (url || input.value).trim();
   if (!finalUrl) return toast('请先粘贴下载链接', true);
+  // 抖音链接不能直接加：要先跑一次解析，把清晰度档位摆给用户选，
+  // 否则只能盲选一档，用户既看不到有哪些档、也不知道自己在下哪一档。
+  if (!opts.quality && isDouyinUrl(finalUrl)) return openDouyinModal(finalUrl, threads);
   const finalThreads = Math.min(64, Math.max(1, Number(threads ?? $('#threads-input').value) || 32));
   try {
-    await window.tdm.addTask(finalUrl, { threads: finalThreads });
+    await window.tdm.addTask(finalUrl, { threads: finalThreads, quality: opts.quality });
     input.value = '';
     toast('任务已添加');
   } catch (e) {
@@ -169,6 +203,12 @@ $('#url-input').addEventListener('keydown', e => { if (e.key === 'Enter') addTas
 $('#threads-input').addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
 $('#btn-pause-all').addEventListener('click', () => window.tdm.pauseAll());
 $('#btn-clear-completed').addEventListener('click', () => window.tdm.clearCompleted());
+
+// 版本号从主进程取，避免界面写死的版本号和 package.json 漂移
+window.tdm.appVersion?.().then(v => {
+  const el = $('#about-version');
+  if (el && v) el.textContent = 'v' + v;
+}).catch(() => {});
 
 // 链接复制 / 导出
 $('#btn-copy-links').addEventListener('click', async () => {
@@ -200,6 +240,8 @@ $('#btn-settings').addEventListener('click', async () => {
   $('#cfg-threads').value = cfg.maxThreads;
   $('#cfg-concurrent').value = cfg.maxConcurrent;
   $('#cfg-clipboard').checked = cfg.clipboardMonitor !== false;
+  $('#cfg-bt-seed').value = cfg.btSeedTime ?? 0;
+  $('#cfg-bt-trackers').value = cfg.btTrackers || '';
   modal.classList.remove('hidden');
 });
 $('#btn-settings-cancel').addEventListener('click', () => modal.classList.add('hidden'));
@@ -212,7 +254,9 @@ $('#btn-settings-save').addEventListener('click', async () => {
     downloadDir: $('#cfg-dir').value,
     maxThreads: Math.min(64, Math.max(1, Number($('#cfg-threads').value) || 32)),
     maxConcurrent: Math.min(10, Math.max(1, Number($('#cfg-concurrent').value) || 3)),
-    clipboardMonitor: $('#cfg-clipboard').checked
+    clipboardMonitor: $('#cfg-clipboard').checked,
+    btSeedTime: Math.max(0, Number($('#cfg-bt-seed').value) || 0),
+    btTrackers: $('#cfg-bt-trackers').value.trim()
   });
   modal.classList.add('hidden');
   toast('设置已保存');
@@ -315,6 +359,77 @@ $('#sniff-checkall').addEventListener('change', () => {
   document.querySelectorAll('.sniff-check').forEach(cb => { cb.checked = on; });
   updateSniffButtons();
 });
+
+// ---------- 抖音 ----------
+// 抖音必须走应用内解析（隐藏窗口跑 JS 挑战换 s_v_web_id，再调 detail 接口拿无水印直链），
+// 不能交给 yt-dlp —— 它的 DouyinIE 自己不生成签名 cookie，实测喂 cookie 也 403。
+const dyModal = $('#douyin-modal');
+let dyCurrent = null; // { url, threads, variants, selected }
+
+// 抖音的分享按钮复制出来的是「文案 + 链接」一整段，所以不能直接 new URL()，
+// 要先把里面的链接抠出来（与 queue.js 的 classify 保持一致的口径）。
+function isDouyinUrl(u) {
+  const m = String(u || '').match(/https?:\/\/[^\s，,。；;、]+/);
+  try {
+    const h = new URL(m ? m[0] : String(u || '').trim()).hostname.toLowerCase();
+    return /(^|\.)(douyin|iesdouyin)\.com$/.test(h);
+  } catch { return false; }
+}
+
+async function openDouyinModal(url, threads) {
+  dyCurrent = null;
+  const cover = $('#dy-cover');
+  cover.removeAttribute('src');
+  cover.style.display = 'none';
+  $('#dy-author').textContent = '';
+  $('#dy-desc').textContent = '';
+  $('#dy-stats').textContent = '';
+  $('#dy-variants').innerHTML = '';
+  $('#btn-dy-add').disabled = true;
+  $('#dy-status').textContent = '⏳ 正在通过抖音验证并解析无水印地址…（首次需要跑一次验证，约 2–5 秒）';
+  dyModal.classList.remove('hidden');
+
+  let r;
+  try { r = await window.tdm.douyinExtract(url); }
+  catch (e) { r = { ok: false, error: (e && e.message) || String(e) }; }
+  if (!dyModal || dyModal.classList.contains('hidden')) return; // 解析期间用户已关闭
+  if (!r.ok) { $('#dy-status').textContent = '❌ ' + r.error; return; }
+  if (r.isImages) {
+    $('#dy-status').textContent = `❌ 这是图文作品（${r.imageCount} 张图），当前版本只支持下载视频`;
+    return;
+  }
+  if (!r.variants.length) { $('#dy-status').textContent = '❌ 没有解析到可下载的视频流'; return; }
+
+  dyCurrent = { url, threads, variants: r.variants, selected: 0 };
+  $('#dy-author').textContent = r.author || '';
+  $('#dy-desc').textContent = r.desc || '';
+  $('#dy-stats').textContent = [fmtDuration(r.durationMs), r.music].filter(Boolean).join(' · ');
+  if (r.cover) { cover.src = r.cover; cover.style.display = ''; }
+  $('#dy-status').textContent = `✅ 共 ${r.variants.length} 档清晰度，选一档开始下载`;
+  $('#dy-variants').innerHTML = r.variants.map((v, i) => `
+    <label class="dy-variant" title="${v.codec === 'h265' ? 'H.265 编码：文件更小，但部分老播放器/设备不支持' : 'H.264 编码：兼容性最好'}">
+      <input type="radio" name="dy-quality" value="${i}" ${i === 0 ? 'checked' : ''} />
+      <span class="dy-q-label">${escapeHtml(v.label || '默认')}</span>
+      <span class="dy-q-dim">${v.width && v.height ? `${v.width}×${v.height}` : ''}</span>
+      <span class="dy-q-size">${v.size ? fmtBytes(v.size) : ''}</span>
+    </label>`).join('');
+  $('#dy-variants').querySelectorAll('input[name="dy-quality"]').forEach(el => {
+    el.addEventListener('change', () => { if (dyCurrent) dyCurrent.selected = Number(el.value); });
+  });
+  $('#btn-dy-add').disabled = false;
+}
+
+$('#btn-dy-add').addEventListener('click', async () => {
+  if (!dyCurrent) return;
+  const { url, threads, variants, selected } = dyCurrent;
+  dyCurrent = null;
+  dyModal.classList.add('hidden');
+  const v = variants[selected];
+  // 传 label 而不是高度：同一高度可能有「普通」和「流畅」两档，只有 label 能唯一指定
+  await addTask(url, threads, { quality: v ? v.label : undefined });
+});
+$('#btn-dy-cancel').addEventListener('click', () => { dyCurrent = null; dyModal.classList.add('hidden'); });
+dyModal.addEventListener('click', e => { if (e.target === dyModal) $('#btn-dy-cancel').click(); });
 
 // ---------- 剪贴板自动识别 ----------
 const cbModal = $('#clipboard-modal');

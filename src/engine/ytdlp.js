@@ -14,12 +14,20 @@ function ytdlpEnv() {
 }
 
 const IS_WIN = process.platform === 'win32';
+const BIN_NAME = IS_WIN ? 'yt-dlp.exe' : 'yt-dlp';
+
+// 缺依赖时的可操作提示：Windows 走手动放文件，macOS/Linux 更推荐包管理器
+function missingHint() {
+  return IS_WIN
+    ? `请将 yt-dlp.exe 放入项目 bin/ 目录`
+    : `请将 yt-dlp 放入项目 bin/ 目录，或执行 brew install yt-dlp`;
+}
 
 function findBinary() {
   const cfg = require('./config').load();
   if (cfg.ytdlpBin && fs.existsSync(cfg.ytdlpBin)) return cfg.ytdlpBin;
   // 开发环境：项目 bin/；打包后：resources/bin/（electron-builder extraResources）
-  const name = IS_WIN ? 'yt-dlp.exe' : 'yt-dlp';
+  const name = BIN_NAME;
   const candidates = [path.join(__dirname, '..', '..', 'bin', name)];
   if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'bin', name));
   for (const c of candidates) if (fs.existsSync(c)) return c;
@@ -34,7 +42,7 @@ function probe(url) {
     const errChunks = [];
     p.stdout.on('data', d => chunks.push(d));
     p.stderr.on('data', d => errChunks.push(d));
-    p.on('error', e => reject(new Error(`yt-dlp 不可用 (${e.message})。请将 yt-dlp.exe 放入项目 bin/ 目录`)));
+    p.on('error', e => reject(new Error(`yt-dlp 不可用 (${e.message})。${missingHint()}`)));
     p.on('exit', code => {
       const out = Buffer.concat(chunks).toString('utf8');
       const err = Buffer.concat(errChunks).toString('utf8');
@@ -61,7 +69,7 @@ function probeFormats(url) {
     const errChunks = [];
     p.stdout.on('data', d => chunks.push(d));
     p.stderr.on('data', d => errChunks.push(d));
-    p.on('error', e => reject(new Error(`yt-dlp 不可用 (${e.message})。请将 yt-dlp.exe 放入项目 bin/ 目录`)));
+    p.on('error', e => reject(new Error(`yt-dlp 不可用 (${e.message})。${missingHint()}`)));
     p.on('exit', code => {
       const out = Buffer.concat(chunks).toString('utf8');
       const err = Buffer.concat(errChunks).toString('utf8');
@@ -153,7 +161,9 @@ class YtDlpDownloader extends EventEmitter {
       '-o', path.join(cfg.downloadDir, '%(title).120s.%(ext)s'),
       this.url
     ];
-    this._proc = spawn(bin, args, { windowsHide: true, env: ytdlpEnv() });
+    // POSIX 下用 detached 让子进程自成进程组：yt-dlp 会再拉起 ffmpeg 做合并，
+    // 只有成组才能一次把整棵进程树干掉，否则暂停后会留下孤儿 ffmpeg 继续下载写盘。
+    this._proc = spawn(bin, args, { windowsHide: true, env: ytdlpEnv(), detached: !IS_WIN });
     this._log(`▶ yt-dlp 启动: ${this.url} (pid ${this._proc.pid}, 8 并发分片)`);
     let errBuf = '';
     this._proc.stdout.setEncoding('utf8');
@@ -179,7 +189,7 @@ class YtDlpDownloader extends EventEmitter {
     });
     this._proc.on('error', e => {
       this.status = 'error';
-      this.error = `yt-dlp 不可用 (${e.message})。请将 yt-dlp.exe 放入项目 bin/ 目录`;
+      this.error = `yt-dlp 不可用 (${e.message})。${missingHint()}`;
       this.emit('error', this.snapshot());
     });
     this._proc.on('exit', code => {
@@ -196,7 +206,9 @@ class YtDlpDownloader extends EventEmitter {
             this.finalPath = finalPath;
             this._log(`✔ 最终文件: ${finalPath}`);
           }
-          fs.unlink(pathFile).catch(() => {});
+          // fs.unlink 不带回调会直接抛 ERR_INVALID_ARG_TYPE，原来的 .catch() 根本执行不到，
+          // 临时路径文件永远留在下载目录里。必须用回调形式。
+          fs.unlink(pathFile, () => {});
         } catch { /* 无路径文件时保持输出行解析的标题 */ }
         this.status = 'completed';
         this.emit('done', this.snapshot());
@@ -223,8 +235,14 @@ class YtDlpDownloader extends EventEmitter {
         tk.on('error', () => { try { proc.kill(); } catch { /* 已退出 */ } });
         tk.on('exit', c => this._log(c === 0 ? '⏸ 已终止 yt-dlp 进程树' : `⏸ taskkill 退出码 ${c}（可能已自行退出）`));
       } else {
-        // Linux/macOS：onefile 为单进程，直接 SIGTERM
-        try { proc.kill('SIGTERM'); this._log('⏸ 已终止 yt-dlp 进程'); } catch { /* 已退出 */ }
+        // POSIX：yt-dlp 下载完成后会拉起 ffmpeg 合并，只 SIGTERM yt-dlp 自己
+        // 会留下孤儿 ffmpeg 继续跑。spawn 时已 detached，这里对整组发信号。
+        try {
+          process.kill(-proc.pid, 'SIGTERM');
+          this._log('⏸ 已终止 yt-dlp 进程组（含 ffmpeg 子进程）');
+        } catch {
+          try { proc.kill('SIGTERM'); this._log('⏸ 已终止 yt-dlp 进程'); } catch { /* 已退出 */ }
+        }
       }
     }
     this.emit('progress', this.snapshot());

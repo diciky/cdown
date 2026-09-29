@@ -77,7 +77,14 @@ npx electron-builder --linux  # Linux
 > 下载放入 `bin/`；如需 HLS 合并，将 [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) 的
 > `ffmpeg.exe` 一并放入。
 >
-> 打包后数据目录位于 `%APPDATA%/CDown`。
+> **BitTorrent 支持**：BT 下载由 [aria2](https://github.com/aria2/aria2) 驱动。
+> `bin/aria2/` 同样不入库，macOS 上执行 `npm run bundle:aria2` 可自动生成
+> （它会递归收集 aria2c 的非系统动态库、改写成相对引用并重新做 ad-hoc 签名，
+> 使应用无需用户预装 aria2）。Linux 可用发行版包管理器安装 aria2 后指定 `aria2Bin` 配置项。
+> 未找到 aria2c 时 BT 任务会给出明确的安装提示，其它类型下载不受影响。
+>
+> 打包后数据目录位于 `%APPDATA%/CDown`（macOS 为 `~/Library/Application Support/CDown`）。
+> 可用环境变量 `TDM_DATA_DIR` 覆盖，便于做便携版或多实例。
 
 ## 🌐 浏览器扩展
 
